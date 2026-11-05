@@ -935,8 +935,10 @@ async function checkSystemPackages() {
       let invocation = { executable: resolvedPath, args: def.args };
       if (def.id === "gallery-dl") {
         const userPythonCandidates = [
+          path.join(os.homedir(), "AppData", "Local", "Programs", "Python", "Python311", "python.exe"),
           path.join(os.homedir(), "AppData", "Local", "Python", "pythoncore-3.14-64", "python.exe"),
           path.join(os.homedir(), "AppData", "Local", "Python", "bin", "python.exe"),
+          "C:\\Users\\neopr\\AppData\\Local\\Programs\\Python\\Python311\\python.exe",
           "C:\\Users\\neopr\\AppData\\Local\\Python\\pythoncore-3.14-64\\python.exe",
           "C:\\Users\\neopr\\AppData\\Local\\Python\\bin\\python.exe",
         ];
@@ -1836,12 +1838,12 @@ async function finishJob(job, child, state) {
   recentDownloadOutcomes.push(Boolean(state.success));
   recentDownloadOutcomes = recentDownloadOutcomes.slice(-16);
   const queuedJob = runtimeQueue.find((candidate) => candidate.id === job.id);
-  if (queuedJob && !state.success && !state.cancelled && Number(queuedJob.attempts ?? 0) < 2) {
+  const isNonRetryable = state.error && NON_RETRYABLE_ERROR.test(state.error);
+  if (queuedJob && !state.success && !state.cancelled && Number(queuedJob.attempts ?? 0) < 2 && !isNonRetryable && job.source === "schedule") {
     queuedJob.runtimeStatus = "RETRY_WAIT";
     queuedJob.errorStage = "ERROR1";
-    queuedJob.error = state.error ?? "Download failed; scheduled for hourly retry.";
-    queuedJob.retryAt = Date.now() + 3600_000;
     queuedJob.error = state.error ?? "Download failed; scheduled for retry.";
+    queuedJob.retryAt = Date.now() + 3600_000;
     try { await saveRuntimeQueue(); } catch (error) { console.error(`Retry state save failed for ${job.id}: ${error.message}`); }
     await persistScheduledRunState(queuedJob);
     return;
@@ -2014,8 +2016,6 @@ function startDownload(job) {
     settings.mergeOutputFormat,
     "-FragmentConcurrency",
     String(adaptive.fragments),
-    "-BandwidthLimit",
-    settings.bandwidthLimit,
     "-PlaylistEnd",
     String(PROFILE_VIDEO_LIMIT),
     "-RetryLimit",
@@ -2035,6 +2035,9 @@ function startDownload(job) {
     "-Url",
     job.url,
   ];
+  if (settings.bandwidthLimit) {
+    args.splice(args.indexOf("-PlaylistEnd"), 0, "-BandwidthLimit", settings.bandwidthLimit);
+  }
   const state = {
     child: null,
     starting: true,

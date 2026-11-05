@@ -5,8 +5,10 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$YtDlpPath,
 
+    [AllowEmptyString()]
     [string]$FfmpegPath = '',
 
+    [AllowEmptyString()]
     [string]$DenoPath = '',
 
     [string]$VideoQuality = 'best',
@@ -22,6 +24,7 @@ param(
 
     [int]$FragmentConcurrency = 4,
 
+    [AllowEmptyString()]
     [string]$BandwidthLimit = '',
 
     [int]$PlaylistEnd = 0,
@@ -79,10 +82,10 @@ try {
     if ($parsedUrl.Host -match '(^|\.)tiktok\.com$' -and $parsedUrl.Host -match '^([vm]|vt)\.tiktok\.com$') {
         try {
             $redirect = Invoke-WebRequest -Uri $Url -Method Head -MaximumRedirection 10 -UseBasicParsing -TimeoutSec $SocketTimeoutSeconds
-            if ($redirect.BaseResponse.RequestUri) {
-                $resolvedUrl = $redirect.BaseResponse.RequestUri.AbsoluteUri
-            } elseif ($redirect.BaseResponse.ResponseUri) {
+            if ($redirect.BaseResponse.ResponseUri) {
                 $resolvedUrl = $redirect.BaseResponse.ResponseUri.AbsoluteUri
+            } elseif ($redirect.BaseResponse.RequestUri) {
+                $resolvedUrl = $redirect.BaseResponse.RequestUri.AbsoluteUri
             }
         } catch {
             try {
@@ -125,8 +128,10 @@ try {
     if ($isTikTokPhoto) {
         $galleryArgs = @('-m', 'gallery_dl')
         $pythonRoots = @(
+            'C:\Users\neopr\AppData\Local\Programs\Python\Python311\python.exe',
             'C:\Users\neopr\AppData\Local\Python\pythoncore-3.14-64\python.exe',
             'C:\Users\neopr\AppData\Local\Python\bin\python.exe',
+            "$env:LOCALAPPDATA\Programs\Python\Python311\python.exe",
             "$env:LOCALAPPDATA\Python\pythoncore-3.14-64\python.exe",
             "$env:LOCALAPPDATA\Python\bin\python.exe"
         )
@@ -138,6 +143,10 @@ try {
             }
         }
         if (-not $galleryLauncher) {
+            $cmdPython = Get-Command 'python.exe' -ErrorAction SilentlyContinue
+            if ($cmdPython) { $galleryLauncher = $cmdPython }
+        }
+        if (-not $galleryLauncher) {
             $launcher = Get-Command 'py.exe' -ErrorAction SilentlyContinue
             if ($launcher) { $galleryLauncher = $launcher }
         }
@@ -146,8 +155,11 @@ try {
         }
         $galleryCommand = if ($galleryLauncher.PSObject.Properties['Source']) { $galleryLauncher.Source } else { $galleryLauncher.FullName }
         if (-not $galleryCommand) { $galleryCommand = $galleryLauncher.Path }
-        $galleryOutput = & $galleryCommand @galleryArgs '--directory' $OutputDirectory '--Print' 'after:__OUTPUT__{_path}' $resolvedUrl 2>&1
+        $prevEap = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        $galleryOutput = & $galleryCommand @galleryArgs '--directory' $OutputDirectory '--print' 'after:__OUTPUT__{_path}' $resolvedUrl 2>&1
         $galleryExitCode = $LASTEXITCODE
+        $ErrorActionPreference = $prevEap
         foreach ($galleryLine in $galleryOutput) { [Console]::Out.WriteLine([string]$galleryLine) }
         if ($galleryExitCode -ne 0) { exit $galleryExitCode }
         [Console]::Out.WriteLine('TikTok photo images downloaded by gallery-dl.')
@@ -206,11 +218,17 @@ try {
     }
     $ytDlpArguments += $resolvedUrl
 
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
     & $YtDlpPath @ytDlpArguments 2>&1 | ForEach-Object {
-            [Console]::Out.WriteLine([string]$_)
-        }
-
+        [Console]::Out.WriteLine([string]$_)
+    }
     $exitCode = $LASTEXITCODE
+    $ErrorActionPreference = $prevEap
+    if ($null -eq $exitCode) {
+        $exitCode = 1
+    }
+    exit $exitCode
     if ($null -eq $exitCode) {
         $exitCode = 1
     }
