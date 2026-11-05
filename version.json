@@ -1,7 +1,7 @@
 {
-  "version": "1.3.1.3",
-  "versionCode": 6,
-  "firmwareVersion": "1.3.1.3",
+  "version": "1.3.1.4",
+  "versionCode": 7,
+  "firmwareVersion": "1.3.1.4",
   "apkUrl": "https://raw.githubusercontent.com/neopro90/Esp32-Download/main/esp-download.apk",
-  "releaseNotes": "1. Khắc phục triệt để lỗi socket failed: ENONET trên Android khi kết nối AP ESP32 không có Internet\n2. Tự động định tuyến gói tin cục bộ 192.168.4.1 qua giao diện Wi-Fi riêng biệt (Network.openConnection)\n3. Tự động phục hồi và unbind tiến trình khi AP ngắt kết nối"
+  "releaseNotes": "1. Sửa lỗi khôi phục sao lưu (Restore Backup) khi file sao lưu có apEnabled=false hoặc Wi-Fi rỗng: tự động bảo vệ AP luôn kích hoạt tránh mất kết nối\n2. Hỗ trợ đầy đủ Shared Settings cấu hình phẳng và cấu trúc lồng nhau (securitySettings, downloadSettings)\n3. Chuẩn hóa restore backup trên ESP32 AP 192.168.4.1, Android App và Local Host"
 }

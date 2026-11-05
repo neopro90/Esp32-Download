@@ -26,7 +26,7 @@
 
 namespace {
 
-constexpr char kFirmwareVersion[] = "1.3.1.1";
+constexpr char kFirmwareVersion[] = "1.3.1.4";
 constexpr uint16_t kFirmwareConfigRevision = 1;
 constexpr char kHostname[] = "espdownload";
 constexpr char kSetupSsid[] = "espsystem";
@@ -1021,10 +1021,11 @@ void rememberTelegramUrlState(const String &url, uint32_t updateId, const String
 }
 
 bool validHostSettingText(JsonVariantConst value, size_t maximumLength, bool required = false) {
-    if (!value.is<JsonString>()) return false;
-    const JsonString text = value.as<JsonString>();
-    if (!text.c_str()) return false;
-    return text.size() <= maximumLength && (!required || text.size() > 0);
+    if (value.isNull()) return !required;
+    const char *text = value.as<const char *>();
+    if (!text) return !required;
+    const size_t len = strlen(text);
+    return len <= maximumLength && (!required || len > 0);
 }
 
 bool allowedValue(const String &value, std::initializer_list<const char *> options) {
@@ -1047,14 +1048,14 @@ bool validateHostSettings(JsonObjectConst settings, String &error) {
     const int retention = settings["urlRetentionDays"] | -1;
     if (retention < 0 || retention > 3650) { error = "URL retention must be between 0 and 3650 days."; return false; }
     JsonObjectConst security = settings["securitySettings"].as<JsonObjectConst>();
-    const int sessionTimeout = security["sessionTimeoutMinutes"] | 0;
-    const int maxLoginAttempts = security["maxLoginAttempts"] | 0;
-    const int loginWindow = security["loginWindowMinutes"] | 0;
-    if (security.isNull() || sessionTimeout < 15 || sessionTimeout > 1440 || maxLoginAttempts < 3 || maxLoginAttempts > 20 || loginWindow < 1 || loginWindow > 60) {
+    const int sessionTimeout = !security.isNull() ? (security["sessionTimeoutMinutes"] | 0) : (settings["sessionTimeoutMinutes"] | 0);
+    const int maxLoginAttempts = !security.isNull() ? (security["maxLoginAttempts"] | 0) : (settings["maxLoginAttempts"] | 0);
+    const int loginWindow = !security.isNull() ? (security["loginWindowMinutes"] | 0) : (settings["loginWindowMinutes"] | 0);
+    if (sessionTimeout < 15 || sessionTimeout > 1440 || maxLoginAttempts < 3 || maxLoginAttempts > 20 || loginWindow < 1 || loginWindow > 60) {
         error = "A shared login security setting is outside its supported range."; return false;
     }
     JsonObjectConst d = settings["downloadSettings"].as<JsonObjectConst>();
-    if (d.isNull()) { error = "Download settings are required."; return false; }
+    if (d.isNull()) { d = settings; }
     const String quality = d["videoQuality"] | "";
     const String thumbnail = d["thumbnailFormat"] | "";
     const String structure = d["outputStructure"] | "";
@@ -1088,7 +1089,11 @@ bool validateHostSettings(JsonObjectConst settings, String &error) {
         !std::isfinite(minFreeGb) || minFreeGb < 0 || minFreeGb > 10000) {
         error = "A download numeric setting is outside its supported range."; return false;
     }
-    if (!validHostSettingText(d["bandwidthLimit"], 16) || !d["mergeAudioVideo"].is<bool>() || !d["allowImageDownloads"].is<bool>() || !d["verifyOutput"].is<bool>() || !d["adaptiveMode"].is<bool>()) {
+    if (!validHostSettingText(d["bandwidthLimit"], 16) ||
+        (!d["mergeAudioVideo"].isNull() && !d["mergeAudioVideo"].is<bool>()) ||
+        (!d["allowImageDownloads"].isNull() && !d["allowImageDownloads"].is<bool>()) ||
+        (!d["verifyOutput"].isNull() && !d["verifyOutput"].is<bool>()) ||
+        (!d["adaptiveMode"].isNull() && !d["adaptiveMode"].is<bool>())) {
         error = "A download option has an invalid type."; return false;
     }
     return true;
@@ -1502,6 +1507,7 @@ void beginWifi() {
     if (ssid.isEmpty()) {
         // First boot or no Wi-Fi credentials: start SoftAP cleanly in WIFI_AP mode
         apEnabled = true;
+        preferences.putBool("apEnabled", true);
         wifiNextReconnectAtMs = 0;
         WiFi.setAutoReconnect(false);
         startSetupAccessPoint();
@@ -1518,6 +1524,7 @@ void beginWifi() {
         startSetupAccessPoint();
     } else {
         WiFi.mode(WIFI_STA);
+        wifiDisconnectedSinceMs = millis();
     }
     Serial.printf("Setup AP %s (configuration revision %u).\n", apEnabled ? "enabled" : "disabled", kFirmwareConfigRevision);
     WiFi.setHostname(kHostname);
@@ -1834,10 +1841,38 @@ void handleConfigRestore() {
     String nextTelegramToken = settings["telegramBotToken"] | "";
     String nextChatIds = settings["telegramAllowedChatIds"] | "";
     String nextRuntimeUrl = settings["runtimeBaseUrl"] | "";
-    const bool nextApEnabled = !settings["apEnabled"].isNull() ? (settings["apEnabled"] | true) : apEnabled;
+    bool nextApEnabled = !settings["apEnabled"].isNull() ? (settings["apEnabled"] | true) : apEnabled;
     const bool nextTelegramEnabled = !settings["telegramEnabled"].isNull() ? (settings["telegramEnabled"] | true) : telegramEnabled;
     int requestedRetention = !settings["urlRetentionDays"].isNull() ? (settings["urlRetentionDays"] | 30) : 30;
     if (requestedRetention < 0 || requestedRetention > 3650) requestedRetention = 30;
+
+    if (nextApiToken.isEmpty()) {
+        if (!request["apiToken"].isNull()) nextApiToken = request["apiToken"].as<String>();
+        else if (!request["deviceToken"].isNull()) nextApiToken = request["deviceToken"].as<String>();
+        else if (!request["hostConfig"].isNull() && !request["hostConfig"]["deviceToken"].isNull()) nextApiToken = request["hostConfig"]["deviceToken"].as<String>();
+    }
+    if (nextTelegramToken.isEmpty()) {
+        if (!request["telegramBotToken"].isNull()) nextTelegramToken = request["telegramBotToken"].as<String>();
+        else if (!request["hostConfig"].isNull() && !request["hostConfig"]["telegramBotToken"].isNull()) nextTelegramToken = request["hostConfig"]["telegramBotToken"].as<String>();
+    }
+    if (nextChatIds.isEmpty()) {
+        if (!settings["telegramAllowedChatId"].isNull()) nextChatIds = settings["telegramAllowedChatId"].as<String>();
+        else if (!request["telegramAllowedChatIds"].isNull()) nextChatIds = request["telegramAllowedChatIds"].as<String>();
+        else if (!request["telegramAllowedChatId"].isNull()) nextChatIds = request["telegramAllowedChatId"].as<String>();
+        else if (!request["hostConfig"].isNull() && !request["hostConfig"]["telegramAllowedChatId"].isNull()) nextChatIds = request["hostConfig"]["telegramAllowedChatId"].as<String>();
+    }
+    if (nextRuntimeUrl.isEmpty()) {
+        if (!request["runtimeBaseUrl"].isNull()) nextRuntimeUrl = request["runtimeBaseUrl"].as<String>();
+        else if (!request["hostConfig"].isNull() && !request["hostConfig"]["runtimeBaseUrl"].isNull()) nextRuntimeUrl = request["hostConfig"]["runtimeBaseUrl"].as<String>();
+    }
+    nextRuntimeUrl.trim();
+    while (nextRuntimeUrl.endsWith("/")) nextRuntimeUrl.remove(nextRuntimeUrl.length() - 1);
+
+    const String currentSsid = preferences.getString("wifiSsid", "");
+    if ((ssid.isEmpty() && currentSsid.isEmpty()) || clearWifi) {
+        // If there is no Wi-Fi credentials configured, AP MUST be enabled to allow access!
+        nextApEnabled = true;
+    }
 
     if (ssid.length() > 32 || wifiPassword.length() > 64) {
         sendError(400, "INVALID_BACKUP", "Wi-Fi settings are outside supported range.");
@@ -1862,7 +1897,6 @@ void handleConfigRestore() {
 
     nextTelegramToken.trim();
     nextChatIds.trim();
-    nextRuntimeUrl.trim();
     if (nextTelegramToken.length() > 128 || nextChatIds.length() > 256 ||
         nextRuntimeUrl.length() > 128 || (!nextRuntimeUrl.isEmpty() && !isPrivateRuntimeUrl(nextRuntimeUrl))) {
         sendError(400, "INVALID_BACKUP", "Telegram or runtime settings are invalid.");
@@ -1923,7 +1957,45 @@ void handleConfigRestore() {
             JsonDocument storedShared;
             storedShared["schemaVersion"] = 1;
             storedShared["revision"] = sharedHostSettingsRevision + 1;
-            storedShared["settings"].set(sharedSettings);
+            JsonObject target = storedShared["settings"].to<JsonObject>();
+            target["workerName"] = sharedSettings["workerName"] | "";
+            target["ytDlpPath"] = sharedSettings["ytDlpPath"] | "";
+            target["ffmpegPath"] = sharedSettings["ffmpegPath"] | "";
+            target["denoPath"] = sharedSettings["denoPath"] | "";
+            target["outputDirectory"] = sharedSettings["outputDirectory"] | "";
+            target["urlRetentionDays"] = sharedSettings["urlRetentionDays"] | 30;
+
+            JsonObjectConst secSrc = sharedSettings["securitySettings"].as<JsonObjectConst>();
+            JsonObject targetSec = target["securitySettings"].to<JsonObject>();
+            targetSec["sessionTimeoutMinutes"] = !secSrc.isNull() ? (secSrc["sessionTimeoutMinutes"] | 720) : (sharedSettings["sessionTimeoutMinutes"] | 720);
+            targetSec["maxLoginAttempts"] = !secSrc.isNull() ? (secSrc["maxLoginAttempts"] | 5) : (sharedSettings["maxLoginAttempts"] | 5);
+            targetSec["loginWindowMinutes"] = !secSrc.isNull() ? (secSrc["loginWindowMinutes"] | 15) : (sharedSettings["loginWindowMinutes"] | 15);
+
+            JsonObjectConst dlSrc = sharedSettings["downloadSettings"].as<JsonObjectConst>();
+            if (dlSrc.isNull()) dlSrc = sharedSettings;
+            JsonObject targetDl = target["downloadSettings"].to<JsonObject>();
+            targetDl["videoQuality"] = dlSrc["videoQuality"] | "best";
+            targetDl["thumbnailFormat"] = dlSrc["thumbnailFormat"] | "off";
+            targetDl["outputStructure"] = dlSrc["outputStructure"] | "extractor";
+            targetDl["filenameTemplate"] = dlSrc["filenameTemplate"] | "%(title)s [%(id)s].%(ext)s";
+            targetDl["mergeAudioVideo"] = dlSrc["mergeAudioVideo"] | true;
+            targetDl["mergeOutputFormat"] = dlSrc["mergeOutputFormat"] | "best";
+            targetDl["allowImageDownloads"] = dlSrc["allowImageDownloads"] | true;
+            targetDl["maxConcurrentJobs"] = dlSrc["maxConcurrentJobs"] | 1;
+            targetDl["fragmentConcurrency"] = dlSrc["fragmentConcurrency"] | 4;
+            targetDl["bandwidthLimit"] = dlSrc["bandwidthLimit"] | "";
+            targetDl["retryLimit"] = dlSrc["retryLimit"] | 3;
+            targetDl["retryBackoffSeconds"] = dlSrc["retryBackoffSeconds"] | 2;
+            targetDl["socketTimeoutSeconds"] = dlSrc["socketTimeoutSeconds"] | 30;
+            targetDl["duplicateUrlPolicy"] = dlSrc["duplicateUrlPolicy"] | "skip_pending";
+            targetDl["existingFilePolicy"] = dlSrc["existingFilePolicy"] | "skip";
+            targetDl["jobTimeoutMinutes"] = dlSrc["jobTimeoutMinutes"] | 0;
+            targetDl["verifyOutput"] = dlSrc["verifyOutput"] | true;
+            targetDl["adaptiveMode"] = dlSrc["adaptiveMode"] | false;
+            targetDl["maxOutputDirectoryGb"] = dlSrc["maxOutputDirectoryGb"] | 0.0;
+            targetDl["minimumFreeDiskGb"] = dlSrc["minimumFreeDiskGb"] | 1.0;
+            targetDl["runtimeHistoryLimit"] = dlSrc["runtimeHistoryLimit"] | 100;
+
             if (writeHostSettings(storedShared)) {
                 sharedHostSettings.set(storedShared["settings"].as<JsonVariantConst>());
                 sharedHostSettingsRevision = storedShared["revision"].as<uint32_t>();
@@ -2287,8 +2359,11 @@ void apRecoveryTick() {
 }
 
 bool isPrivateRuntimeUrl(const String &url) {
-    if (!url.startsWith("http://")) return false;
-    String authority = url.substring(7);
+    String cleanUrl = url;
+    cleanUrl.trim();
+    while (cleanUrl.endsWith("/")) cleanUrl.remove(cleanUrl.length() - 1);
+    if (!cleanUrl.startsWith("http://")) return false;
+    String authority = cleanUrl.substring(7);
     if (authority.isEmpty() || authority.indexOf('/') >= 0 || authority.indexOf('?') >= 0 || authority.indexOf('#') >= 0 || authority.indexOf('@') >= 0) return false;
     String host = authority;
     const int colon = authority.lastIndexOf(':');
@@ -2301,10 +2376,13 @@ bool isPrivateRuntimeUrl(const String &url) {
         if (portNumber < 1 || portNumber > 65535) return false;
     }
     IPAddress address;
-    if (!address.fromString(host)) return false;
-    const uint8_t first = address[0];
-    const uint8_t second = address[1];
-    return first == 10 || (first == 192 && second == 168) || (first == 172 && second >= 16 && second <= 31);
+    if (address.fromString(host)) {
+        const uint8_t first = address[0];
+        const uint8_t second = address[1];
+        return first == 10 || (first == 192 && second == 168) || (first == 172 && second >= 16 && second <= 31) || (first == 127 && second == 0);
+    }
+    if (host == "localhost" || host.endsWith(".local")) return true;
+    return false;
 }
 
 void handleSaveNetwork() {
