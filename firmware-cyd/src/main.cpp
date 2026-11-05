@@ -26,7 +26,7 @@
 
 namespace {
 
-constexpr char kFirmwareVersion[] = "1.3.1.5";
+constexpr char kFirmwareVersion[] = "1.3.1.6";
 constexpr uint16_t kFirmwareConfigRevision = 1;
 constexpr char kHostname[] = "espdownload";
 constexpr char kSetupSsid[] = "espsystem";

@@ -232,6 +232,7 @@ public class MainActivity extends Activity {
                 deviceApiToken = devicePairing.optString("deviceApiToken", "");
             } catch (Exception ignored) { devicePairing = new JSONObject(); }
         }
+        autoHealHostIfNeeded();
         if (sessionToken.isEmpty()) {
             if (BuildConfig.FRESH_INSTALL_TEST) showLogin();
             else autoLoginDefaults();
@@ -339,7 +340,8 @@ public class MainActivity extends Activity {
             accountUsername = result.optString("username", accountUsername);
             showMain();
         }, error -> {
-            // Khi máy chủ offline, không đá người dùng ra màn hình login nếu phiên đã tồn tại
+            // Khi máy chủ offline hoặc host thay đổi, tự động kiểm tra lại host LAN
+            autoHealHostIfNeeded();
             if (sessionToken.startsWith("offline-") || !sessionToken.isEmpty()) {
                 showMain();
             } else {
@@ -3095,8 +3097,15 @@ public class MainActivity extends Activity {
         buttonAction(body, "Lưu Wi‑Fi vào ESP32", true, () -> {
             JSONObject p = new JSONObject(); try { p.put("ssid", value("wifi-ssid")); p.put("password", value("wifi-pass")); } catch (Exception ignored) {}
             runIo(() -> {
+                if (directSetup || isApConnected()) return request("http://192.168.4.1", "/setup/network", "POST", p, "");
                 try { return api("/api/device/api/v1/settings/network", "POST", p); }
-                catch (Exception hostError) { return request("http://192.168.4.1", "/setup/network", "POST", p, ""); }
+                catch (Exception hostError) {
+                    String devUrl = resolveDeviceBaseUrl();
+                    if (!devUrl.isEmpty()) {
+                        return request(devUrl, "/api/v1/settings/network", "POST", p, "");
+                    }
+                    throw hostError;
+                }
             }, result -> { setValue("wifi-pass", ""); toast(result.optString("message", "Đã gửi thông tin Wi‑Fi cho ESP32.")); refreshStatus(false); }, error -> toast(error.getMessage()));
         });
         updateApCard();
@@ -3275,10 +3284,15 @@ public class MainActivity extends Activity {
                 config.put("ddnsEnabled", checked("ddnsEnabled"));
             } catch (Exception ignored) {}
             runIo(() -> {
+                if (directSetup || isApConnected()) return request("http://192.168.4.1", "/api/v1/settings/ddns", "POST", ddnsPayload, "");
                 try {
                     return request(host, "/api/v1/settings/ddns", "POST", ddnsPayload, "");
                 } catch (Exception e) {
-                    return request("http://192.168.4.1", "/api/v1/settings/ddns", "POST", ddnsPayload, "");
+                    String devUrl = resolveDeviceBaseUrl();
+                    if (!devUrl.isEmpty() && !devUrl.equals(host)) {
+                        return request(devUrl, "/api/v1/settings/ddns", "POST", ddnsPayload, "");
+                    }
+                    throw e;
                 }
             }, result -> toast(tr("Đã lưu cấu hình Dynamic DNS lên thiết bị!")), error -> toast(error.getMessage()));
         });
@@ -3287,7 +3301,9 @@ public class MainActivity extends Activity {
     private void renderSettings() {
         heading("Thiết lập local host", "Đồng bộ cấu hình chung với dashboard web trên PC.");
         section("Kết nối thiết bị và worker");
-        addField("deviceBaseUrl", "ESP32 API URL", config.optString("deviceBaseUrl", "http://192.168.4.1"), "http://192.168.4.1", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI, false);
+        String defaultDevUrl = resolveDeviceBaseUrl();
+        if (defaultDevUrl.isEmpty()) defaultDevUrl = "http://192.168.4.1";
+        addField("deviceBaseUrl", "ESP32 API URL", config.optString("deviceBaseUrl", defaultDevUrl), defaultDevUrl, InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI, false);
         addField("runtimeBaseUrl", "Runtime Service URL (LAN)", config.optString("runtimeBaseUrl", ""), "http://192.168.1.25:8787", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI, false);
         
         Button scanRuntimeBtn = button("🔍 Quét tìm Runtime Service trong LAN", false);
@@ -3864,6 +3880,14 @@ public class MainActivity extends Activity {
                                 ((TextView) fb).setText(tr("🎉 Khôi phục cấu hình thành công! ESP32 đang khởi động lại và kết nối mạng Wi-Fi…"));
                                 ((TextView) fb).setTextColor(Color.rgb(36, 109, 82));
                             }
+                            View gwBox = (directSetup ? root : body).findViewWithTag("gateway-result-box");
+                            if (gwBox instanceof LinearLayout) {
+                                JSONObject dCfg = backup.optJSONObject("deviceConfig");
+                                JSONObject nCfg = dCfg != null ? dCfg.optJSONObject("network") : null;
+                                String ssid = nCfg != null ? nCfg.optString("ssid", "Wi-Fi") : "Wi-Fi";
+                                Button dummySave = new Button(this);
+                                pollEsp32GatewayIp(dummySave, (TextView) fb, (LinearLayout) gwBox, ssid, 1);
+                            }
                         },
                         err -> {
                             toast(tr("Khôi phục thất bại: ") + err.getMessage());
@@ -3993,6 +4017,7 @@ public class MainActivity extends Activity {
 
     private void refreshWifiState() { refreshStatus(false); }
     private void updateApCard() {
+        if (body == null) return;
         View state = body.findViewWithTag("ap-state"), toggle = body.findViewWithTag("ap-toggle"), wifi = body.findViewWithTag("wifi-state");
         if (state instanceof TextView) ((TextView) state).setText(tr(device.optBoolean("connected") ? "Setup AP " + (device.optBoolean("provisioningApActive") ? "đang phát" : "đang tắt") + " · chế độ " + (device.optBoolean("provisioningApRecoveryMode") ? "khôi phục" : "bình thường") : "ESP32 chưa kết nối: " + device.optString("error", "kiểm tra URL và API token")));
         if (wifi instanceof TextView) ((TextView) wifi).setText(tr(device.optBoolean("connected") ? "Wi‑Fi: " + (device.optBoolean("wifiConnected") ? "ĐÃ KẾT NỐI · " + device.optString("wifiSsid") + " · " + device.optString("ipAddress") + " · RSSI " + device.optInt("rssi") + " dBm" : device.optString("wifiStatus", "CHƯA KẾT NỐI") + " · IP " + device.optString("ipAddress")) : "Wi‑Fi: chưa đọc được trạng thái ESP32"));
@@ -4019,12 +4044,12 @@ public class MainActivity extends Activity {
             ? "/api/device/api/v1/telegram/log"
             : "/api/device/api/v1/jobs";
         runIo(() -> api(route, "GET", null), result -> {
-            if (!activePage.equals(page)) return;
+            if (!activePage.equals(page) || body == null) return;
             if (page.equals("queue")) displayJobs(result.optJSONArray("jobs"));
             else if (page.equals("logs")) displayLogs(result.optJSONArray("entries"));
             else displayDashboardJobs(result.optJSONArray("jobs"));
         }, error -> {
-            if (!activePage.equals(page)) return;
+            if (!activePage.equals(page) || body == null) return;
             View list = body.findViewWithTag(page.equals("queue") ? "job-list" : page.equals("logs") ? "telegram-log-list" : "dashboard-job-entries");
             if (list instanceof LinearLayout) { ((LinearLayout) list).removeAllViews(); label((LinearLayout) list, error.getMessage(), 13, Color.rgb(170, 75, 60), false); }
             else if (list instanceof TextView) ((TextView) list).setText(error.getMessage());
@@ -4032,7 +4057,7 @@ public class MainActivity extends Activity {
     }
 
     private void displayDashboardJobs(JSONArray jobs) {
-        if (!activePage.equals("dashboard")) return;
+        if (!activePage.equals("dashboard") || body == null) return;
         dashboardJobs = jobs == null ? new JSONArray() : jobs;
         int completedCount = 0, failedCount = 0;
         for (int i = dashboardJobs.length() - 1; i >= 0; i--) {
@@ -4050,6 +4075,7 @@ public class MainActivity extends Activity {
     }
 
     private void displayJobs(JSONArray jobs) {
+        if (!activePage.equals("queue") || body == null) return;
         View v = body.findViewWithTag("job-list"); if (!(v instanceof LinearLayout)) return;
         LinearLayout list = (LinearLayout) v; list.removeAllViews();
         if (jobs == null || jobs.length() == 0) { label(list, "Hàng đợi trống.", 13, MUTED, false); return; }
@@ -4068,6 +4094,7 @@ public class MainActivity extends Activity {
     }
 
     private void displayLogs(JSONArray entries) {
+        if (!activePage.equals("logs") || body == null) return;
         View v = body.findViewWithTag("telegram-log-list"); if (!(v instanceof LinearLayout)) return;
         LinearLayout list = (LinearLayout) v; list.removeAllViews();
         if (entries == null || entries.length() == 0) { label(list, "Chưa có URL Telegram nào được nhận.", 13, MUTED, false); return; }
@@ -4110,9 +4137,15 @@ public class MainActivity extends Activity {
     private void scanWifi() {
         buttonActionBusy("Đang quét Wi‑Fi…");
         runIo(() -> {
-            if(directSetup)return request("http://192.168.4.1","/setup/scan","GET",null,"");
+            if (directSetup || isApConnected()) return request("http://192.168.4.1", "/setup/scan", "GET", null, "");
             try { return api("/api/device/api/v1/wifi/scan", "GET", null); }
-            catch (Exception hostError) { return request("http://192.168.4.1", "/setup/scan", "GET", null, ""); }
+            catch (Exception hostError) {
+                String devUrl = resolveDeviceBaseUrl();
+                if (!devUrl.isEmpty()) {
+                    return request(devUrl, "/api/v1/wifi/scan", "GET", null, "");
+                }
+                throw hostError;
+            }
         }, result -> {
             buttonActionDone(); View v = (directSetup ? root : body).findViewWithTag("wifi-networks"); if (!(v instanceof LinearLayout)) return;
             LinearLayout list = (LinearLayout) v; list.removeAllViews(); JSONArray arr = result.optJSONArray("networks");
@@ -4258,12 +4291,101 @@ public class MainActivity extends Activity {
         runIo(() -> api(path, method, payload), result -> { toast(success); refreshStatus(false); }, error -> toast(error.getMessage()));
     }
 
-    private JSONObject api(String path, String method, JSONObject payload) throws Exception { return request(host, path, method, payload, sessionToken); }
+    private boolean isApConnected() {
+        if (activeApNetwork != null) return true;
+        try {
+            ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                Network activeNet = cm.getActiveNetwork();
+                if (activeNet != null) {
+                    android.net.LinkProperties lp = cm.getLinkProperties(activeNet);
+                    if (lp != null) {
+                        for (android.net.LinkAddress addr : lp.getLinkAddresses()) {
+                            InetAddress ia = addr.getAddress();
+                            if (ia instanceof Inet4Address) {
+                                String hostAddress = ia.getHostAddress();
+                                if (hostAddress != null && hostAddress.startsWith("192.168.4.")) {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+        return false;
+    }
+
+    private void autoHealHostIfNeeded() {
+        if (host == null || (!host.contains("192.168.4.1") && !host.isEmpty())) {
+            return;
+        }
+        if (isApConnected() || directSetup) {
+            return;
+        }
+        String healed = "";
+        String runtimeBase = config.optString("runtimeBaseUrl", "");
+        if (runtimeBase.isEmpty() && config.has("integrations")) {
+            JSONObject itg = config.optJSONObject("integrations");
+            if (itg != null) runtimeBase = itg.optString("runtimeBaseUrl", "");
+        }
+        if (!runtimeBase.isEmpty() && !runtimeBase.contains("192.168.4.1")) {
+            healed = runtimeBase;
+        } else if (!deviceApiUrl.isEmpty() && !deviceApiUrl.contains("192.168.4.1")) {
+            healed = deviceApiUrl;
+        } else {
+            String devIp = device.optString("ipAddress", "");
+            if (devIp.isEmpty() && config.has("network")) {
+                JSONObject net = config.optJSONObject("network");
+                if (net != null) devIp = net.optString("ipAddress", "");
+            }
+            if (!devIp.isEmpty() && !"192.168.4.1".equals(devIp) && !"0.0.0.0".equals(devIp)) {
+                healed = "http://" + devIp;
+            }
+        }
+        if (!healed.isEmpty()) {
+            host = normalizeHost(healed);
+            prefs.edit().putString("host", host).apply();
+        }
+    }
+
+    private String resolveDeviceBaseUrl() {
+        if (directSetup || isApConnected()) return "http://192.168.4.1";
+        if (!deviceApiUrl.isEmpty() && !deviceApiUrl.contains("192.168.4.1")) return deviceApiUrl;
+        String cfgUrl = config.optString("deviceBaseUrl", "");
+        if (!cfgUrl.isEmpty() && !cfgUrl.contains("192.168.4.1")) return cfgUrl;
+        String ip = device.optString("ipAddress", "");
+        if (ip.isEmpty() && config.has("network")) {
+            JSONObject net = config.optJSONObject("network");
+            if (net != null) ip = net.optString("ipAddress", "");
+        }
+        if (!ip.isEmpty() && !"192.168.4.1".equals(ip) && !"0.0.0.0".equals(ip)) return "http://" + ip;
+        if (host != null && !host.contains("192.168.4.1") && (host.endsWith(":80") || (!host.contains(":8787") && !host.contains(":3000")))) {
+            return host;
+        }
+        return "";
+    }
+
+    private JSONObject api(String path, String method, JSONObject payload) throws Exception {
+        autoHealHostIfNeeded();
+        String effectivePath = path;
+        if (path.startsWith("/api/device/api/v1/")) {
+            boolean isDirectEsp = host != null && !host.contains(":8787") && !host.contains(":3000");
+            if (isDirectEsp) {
+                effectivePath = path.substring("/api/device".length());
+            }
+        }
+        return request(host, effectivePath, method, payload, sessionToken);
+    }
 
     private HttpURLConnection openConnectionToUrl(URL url) throws java.io.IOException {
         ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
-        String host = url.getHost();
-        boolean isApLocal = host != null && ("192.168.4.1".equals(host) || host.startsWith("192.168.4."));
+        String urlHost = url.getHost();
+        boolean isApLocal = urlHost != null && ("192.168.4.1".equals(urlHost) || urlHost.startsWith("192.168.4."));
+
+        if (isApLocal && !isApConnected() && !directSetup) {
+            throw new java.net.ConnectException("Không thể kết nối tới " + urlHost + " vì điện thoại đang kết nối Wi-Fi khác (chưa nối vào AP espsystem).");
+        }
 
         if (cm != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             if (isApLocal && activeApNetwork != null) {
