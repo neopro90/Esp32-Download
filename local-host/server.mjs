@@ -301,9 +301,17 @@ async function loadConfig() {
   normalizePersistedSettings();
   deviceSettingsRevision = Number.isInteger(Number(config.settingsRevision)) && Number(config.settingsRevision) >= 0 ? Number(config.settingsRevision) : 0;
   hostSettingsSyncPending = config.hostSettingsSyncPending === true;
-  if (!config.runtimeBaseUrl) {
-    const hostAddress = getLanAddresses()[0];
-    if (hostAddress) config.runtimeBaseUrl = `http://${hostAddress}:${port}`;
+  const lanIps = getLanAddresses();
+  let currentRuntimeHost = "";
+  try {
+    currentRuntimeHost = new URL(config.runtimeBaseUrl).hostname;
+  } catch {}
+  if (!config.runtimeBaseUrl || !lanIps.includes(currentRuntimeHost) || !config.runtimeBaseUrl.includes(`:${port}`)) {
+    const hostAddress = lanIps[0];
+    if (hostAddress) {
+      config.runtimeBaseUrl = `http://${hostAddress}:${port}`;
+      integrationsSyncPending = true;
+    }
   }
   ensureAccountCredentials();
   await saveConfig();
@@ -2227,9 +2235,30 @@ async function workerTick() {
           }
           const beforeCount = runtimeQueue.length;
           runtimeQueue = runtimeQueue.filter((job) => {
+            if (isTerminalRuntimeJob(job)) return true;
             if (activeJobs.has(job.id)) return authoritativeIds.has(job.id);
             return authoritativeIds.has(job.id);
           });
+          for (const dJob of deviceJobs.payload.jobs) {
+            const dId = String(dJob.id);
+            if (["QUEUED", "DISPATCHED"].includes(dJob.status) && !runtimeQueue.some((q) => q.id === dId)) {
+              runtimeQueue.push({
+                id: dId,
+                url: String(dJob.url || ""),
+                source: String(dJob.source || "telegram"),
+                telegramChatId: String(dJob.telegramChatId || ""),
+                deviceAttempts: Number(dJob.attempts || 0),
+                createdAt: String(dJob.createdAt || new Date().toISOString()),
+                runtimeStatus: "QUEUED",
+                force: Boolean(dJob.force),
+                outputPath: "",
+                error: "",
+                deviceReported: false,
+                receivedAt: new Date().toISOString(),
+              });
+              console.log(`Pulled pending ESP32 job ${dId} into Windows runtime queue.`);
+            }
+          }
           if (runtimeQueue.length !== beforeCount) await saveRuntimeQueue();
         }
       } catch {
@@ -2301,7 +2330,7 @@ async function workerTick() {
           return;
         }
       } catch {
-        return;
+        // Best-effort cancellation check; proceed with download if device is temporarily busy
       }
     }
     next.runtimeStatus = "RUNNING";
