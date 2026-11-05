@@ -1443,18 +1443,13 @@ public class MainActivity extends Activity {
         firmwareRows = column(panel);
 
         String defaultRepoUrl = "https://github.com/neopro90/Esp32-Download";
-        String savedGithubUrl = prefs.getString("flash-github-url", defaultRepoUrl);
-        if (savedGithubUrl.contains("raw.githubusercontent.com")) savedGithubUrl = defaultRepoUrl;
-        EditText githubUrl = input("flash-github-url", "URL GitHub firmware (để trống sẽ tự lấy theo chip)", savedGithubUrl, defaultRepoUrl,
+        EditText githubUrl = input("flash-github-url", "URL GitHub firmware (mặc định)", defaultRepoUrl, defaultRepoUrl,
             InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI, false);
+        githubUrl.setText(defaultRepoUrl);
+        githubUrl.setEnabled(false);
+        githubUrl.setAlpha(0.6f);
+        githubUrl.setTextColor(MUTED);
         panel.addView(githubUrl, full());
-        githubUrl.addTextChangedListener(new TextWatcher() {
-            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
-            public void onTextChanged(CharSequence s, int start, int before, int count) {
-                prefs.edit().putString("flash-github-url", s.toString()).apply();
-            }
-            public void afterTextChanged(Editable e) {}
-        });
         Button downloadGithub = button("Lấy firmware từ URL", false);
         panel.addView(downloadGithub, full());
         downloadGithub.setOnClickListener(v -> downloadGithubFirmware(githubUrl.getText().toString().trim()));
@@ -3238,7 +3233,13 @@ public class MainActivity extends Activity {
         if (defaultToken.isEmpty() && prefs != null) {
             defaultToken = prefs.getString("ddns_token", "");
         }
-        addField("ddnsToken", "DuckDNS Token", defaultToken, "Dán token từ duckdns.org (nếu dùng DuckDNS)", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD, false);
+        final String savedDdnsToken = defaultToken;
+        String tokenLast4 = defaultToken.length() >= 4 ? defaultToken.substring(defaultToken.length() - 4) : defaultToken;
+        String tokenHint = !defaultToken.isEmpty() ? "Đã lưu ****..." + tokenLast4 : "Dán token từ duckdns.org (nếu dùng DuckDNS)";
+        addField("ddnsToken", "DuckDNS Token" + (!defaultToken.isEmpty() ? " (****..." + tokenLast4 + ")" : ""), "", tokenHint, InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD, false);
+        if (!defaultToken.isEmpty()) {
+            label(body, "🔑 Token DuckDNS đã lưu: ****..." + tokenLast4, 11, GREEN, false);
+        }
 
         buttonAction(body, "🌐 Mở Web ESP32 từ xa trên Trình duyệt", true, () -> {
             int pPos = providerSpinner.getSelectedItemPosition();
@@ -3264,23 +3265,25 @@ public class MainActivity extends Activity {
             String sub = domainEdit.getText().toString().trim();
             String port = portEdit.getText().toString().trim();
             String fullDomain = computeDdnsFullDomain(pPos, sub);
+            String inputToken = value("ddnsToken").trim();
+            String tokenToSave = inputToken.isEmpty() ? savedDdnsToken : inputToken;
             JSONObject ddnsPayload = new JSONObject();
             try {
                 ddnsPayload.put("enabled", checked("ddnsEnabled"));
                 ddnsPayload.put("domain", fullDomain);
-                ddnsPayload.put("token", value("ddnsToken"));
+                ddnsPayload.put("token", tokenToSave);
             } catch (Exception ignored) {}
             if (prefs != null) {
                 prefs.edit().putInt("ddns_provider_pos", pPos)
                            .putString("ddns_ext_port", port.isEmpty() ? "80" : port)
                            .putString("ddns_domain_raw", sub)
-                           .putString("ddns_token", value("ddnsToken"))
+                           .putString("ddns_token", tokenToSave)
                            .putBoolean("ddns_enabled", checked("ddnsEnabled"))
                            .apply();
             }
             try {
                 config.put("ddnsDomain", fullDomain);
-                config.put("ddnsToken", value("ddnsToken"));
+                config.put("ddnsToken", tokenToSave);
                 config.put("ddnsEnabled", checked("ddnsEnabled"));
             } catch (Exception ignored) {}
             runIo(() -> {
@@ -4051,8 +4054,12 @@ public class MainActivity extends Activity {
         }, error -> {
             if (!activePage.equals(page) || body == null) return;
             View list = body.findViewWithTag(page.equals("queue") ? "job-list" : page.equals("logs") ? "telegram-log-list" : "dashboard-job-entries");
-            if (list instanceof LinearLayout) { ((LinearLayout) list).removeAllViews(); label((LinearLayout) list, error.getMessage(), 13, Color.rgb(170, 75, 60), false); }
-            else if (list instanceof TextView) ((TextView) list).setText(error.getMessage());
+            String msg = error.getMessage();
+            if (isMobileDataActive() && host != null && (host.contains("192.168.") || host.contains("10."))) {
+                msg += "\n\n⚠️ " + tr("Điện thoại đang dùng mạng di động (4G/LTE), không thể truy cập trực tiếp IP LAN nội bộ. Hãy mở Wi-Fi gia đình hoặc cấu hình DuckDNS.");
+            }
+            if (list instanceof LinearLayout) { ((LinearLayout) list).removeAllViews(); label((LinearLayout) list, msg, 13, Color.rgb(170, 75, 60), false); }
+            else if (list instanceof TextView) ((TextView) list).setText(msg);
         });
     }
 
@@ -4316,13 +4323,51 @@ public class MainActivity extends Activity {
         return false;
     }
 
+    private boolean isMobileDataActive() {
+        try {
+            ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                Network activeNet = cm.getActiveNetwork();
+                if (activeNet != null) {
+                    NetworkCapabilities caps = cm.getNetworkCapabilities(activeNet);
+                    if (caps != null) {
+                        return caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
+                            && !caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI);
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+        return false;
+    }
+
     private void autoHealHostIfNeeded() {
-        if (host == null || (!host.contains("192.168.4.1") && !host.isEmpty())) {
-            return;
-        }
         if (isApConnected() || directSetup) {
             return;
         }
+
+        // 1. Nếu đang dùng 4G/di động: tự động chuyển host sang tên miền DDNS nếu có
+        if (isMobileDataActive()) {
+            String ddnsDomain = prefs != null ? prefs.getString("ddns_domain_raw", "") : "";
+            if (ddnsDomain.isEmpty()) ddnsDomain = config.optString("ddnsDomain", "");
+            if (!ddnsDomain.isEmpty()) {
+                int pPos = prefs != null ? prefs.getInt("ddns_provider_pos", 0) : 0;
+                String extPort = prefs != null ? prefs.getString("ddns_ext_port", "80") : "80";
+                String ddnsUrl = computeDdnsFullUrl(pPos, ddnsDomain, extPort);
+                if (!ddnsUrl.isEmpty() && !ddnsUrl.equals(host)) {
+                    host = normalizeHost(ddnsUrl);
+                    if (prefs != null) prefs.edit().putString("host", host).apply();
+                    return;
+                }
+            }
+        }
+
+        // 2. Nếu đang dùng Wi-Fi LAN: khôi phục về IP LAN nội bộ nếu host đang kẹt ở 192.168.4.1 hoặc domain DDNS
+        boolean isLan = !isMobileDataActive();
+        boolean needsHeal = host == null || host.isEmpty() || host.contains("192.168.4.1")
+            || (isLan && host.contains(".duckdns.org"));
+
+        if (!needsHeal) return;
+
         String healed = "";
         String runtimeBase = config.optString("runtimeBaseUrl", "");
         if (runtimeBase.isEmpty() && config.has("integrations")) {
@@ -4345,8 +4390,27 @@ public class MainActivity extends Activity {
         }
         if (!healed.isEmpty()) {
             host = normalizeHost(healed);
-            prefs.edit().putString("host", host).apply();
+            if (prefs != null) prefs.edit().putString("host", host).apply();
         }
+    }
+
+    private String resolveAlternativeHost() {
+        if (host == null || host.isEmpty()) return "";
+        if (host.contains("192.168.") || host.contains("10.") || host.contains("127.0.0.1")) {
+            String ddnsDomain = prefs != null ? prefs.getString("ddns_domain_raw", "") : "";
+            if (ddnsDomain.isEmpty()) ddnsDomain = config.optString("ddnsDomain", "");
+            if (!ddnsDomain.isEmpty()) {
+                int pPos = prefs != null ? prefs.getInt("ddns_provider_pos", 0) : 0;
+                String extPort = prefs != null ? prefs.getString("ddns_ext_port", "80") : "80";
+                return normalizeHost(computeDdnsFullUrl(pPos, ddnsDomain, extPort));
+            }
+        } else {
+            String runtimeBase = config.optString("runtimeBaseUrl", "");
+            if (!runtimeBase.isEmpty() && !runtimeBase.contains("192.168.4.1")) return normalizeHost(runtimeBase);
+            String devIp = device.optString("ipAddress", "");
+            if (!devIp.isEmpty() && !"192.168.4.1".equals(devIp) && !"0.0.0.0".equals(devIp)) return normalizeHost("http://" + devIp);
+        }
+        return "";
     }
 
     private String resolveDeviceBaseUrl() {
@@ -4369,13 +4433,26 @@ public class MainActivity extends Activity {
     private JSONObject api(String path, String method, JSONObject payload) throws Exception {
         autoHealHostIfNeeded();
         String effectivePath = path;
-        if (path.startsWith("/api/device/api/v1/")) {
-            boolean isDirectEsp = host != null && !host.contains(":8787") && !host.contains(":3000");
-            if (isDirectEsp) {
-                effectivePath = path.substring("/api/device".length());
-            }
+        boolean isDirectEsp = host != null && !host.contains(":8787") && !host.contains(":3000");
+        if (path.startsWith("/api/device/api/v1/") && isDirectEsp) {
+            effectivePath = path.substring("/api/device".length());
         }
-        return request(host, effectivePath, method, payload, sessionToken);
+        try {
+            return request(host, effectivePath, method, payload, sessionToken);
+        } catch (Exception ex) {
+            String alt = resolveAlternativeHost();
+            if (!alt.isEmpty() && !alt.equals(host)) {
+                try {
+                    boolean altIsEsp = !alt.contains(":8787") && !alt.contains(":3000");
+                    String altPath = path.startsWith("/api/device/api/v1/") && altIsEsp ? path.substring("/api/device".length()) : path;
+                    JSONObject res = request(alt, altPath, method, payload, sessionToken);
+                    host = alt;
+                    if (prefs != null) prefs.edit().putString("host", host).apply();
+                    return res;
+                } catch (Exception ignored) {}
+            }
+            throw ex;
+        }
     }
 
     private HttpURLConnection openConnectionToUrl(URL url) throws java.io.IOException {
@@ -4385,6 +4462,12 @@ public class MainActivity extends Activity {
 
         if (isApLocal && !isApConnected() && !directSetup) {
             throw new java.net.ConnectException("Không thể kết nối tới " + urlHost + " vì điện thoại đang kết nối Wi-Fi khác (chưa nối vào AP espsystem).");
+        }
+
+        // Fast-fail khi điện thoại dùng 4G mà cố gắng kết nối IP private LAN
+        boolean isPrivateLan = urlHost != null && (urlHost.startsWith("192.168.") || urlHost.startsWith("10.") || urlHost.startsWith("172.16."));
+        if (isPrivateLan && isMobileDataActive() && !isApLocal) {
+            throw new java.net.ConnectException("Điện thoại đang dùng 4G/di động, không thể truy cập trực tiếp IP LAN nội bộ " + urlHost + ". Hãy mở Wi-Fi gia đình hoặc dùng tên miền DDNS.");
         }
 
         if (cm != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
