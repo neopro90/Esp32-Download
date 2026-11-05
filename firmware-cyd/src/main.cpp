@@ -26,7 +26,7 @@
 
 namespace {
 
-constexpr char kFirmwareVersion[] = "1.3.1.8";
+constexpr char kFirmwareVersion[] = "1.3.1.9";
 constexpr uint16_t kFirmwareConfigRevision = 1;
 constexpr char kHostname[] = "espdownload";
 constexpr char kSetupSsid[] = "espsystem";
@@ -2920,9 +2920,9 @@ void processTelegramMessage(JsonObjectConst message, uint32_t updateId) {
             sendTelegramMessage(chatId, "Chat này chưa được cấp quyền sử dụng bot.");
             return;
         }
-        sendTelegramMessage(chatId, "🔄 ESP32 đang khởi động lại ngay bây giờ...");
+        sendTelegramMessage(chatId, "🔄 ESP32 đang khởi động lại (LED chớp 10 giây)...");
         delay(600);
-        ESP.restart();
+        performVisualReboot();
         return;
     }
 
@@ -3580,14 +3580,33 @@ void runtimeDeliveryTick() {
     }
 }
 
+void performVisualReboot() {
+    server.close();
+    delay(100);
+    // Visual feedback: blink onboard LEDs for 10 seconds before restart
+    const uint8_t blinkPins[] = {2, 4, 16, 17};
+    for (uint8_t pin : blinkPins) {
+        pinMode(pin, OUTPUT);
+    }
+    for (int i = 0; i < 25; ++i) {
+        for (uint8_t pin : blinkPins) digitalWrite(pin, (i % 2 == 0) ? HIGH : LOW);
+        delay(200);
+        for (uint8_t pin : blinkPins) digitalWrite(pin, (i % 2 == 0) ? LOW : HIGH);
+        delay(200);
+    }
+    for (uint8_t pin : blinkPins) {
+        digitalWrite(pin, LOW);
+    }
+    delay(200);
+    ESP.restart();
+}
+
 void handleReboot() {
     JsonDocument response;
     response["success"] = true;
-    response["message"] = "ESP32 đang khởi động lại...";
+    response["message"] = "ESP32 đang khởi động lại (LED chớp 10 giây)...";
     sendJson(200, response);
-    server.close();
-    delay(500);
-    ESP.restart();
+    performVisualReboot();
 }
 
 void handleIdentify() {

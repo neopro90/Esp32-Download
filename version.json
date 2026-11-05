@@ -1,7 +1,7 @@
 {
-  "version": "1.3.1.8",
-  "versionCode": 11,
-  "firmwareVersion": "1.3.1.8",
+  "version": "1.3.1.9",
+  "versionCode": 12,
+  "firmwareVersion": "1.3.1.9",
   "apkUrl": "https://raw.githubusercontent.com/neopro90/Esp32-Download/main/esp-download.apk",
-  "releaseNotes": "1. Chuẩn hóa tiêu đề module pipeline thành DDNS trên cả Web Host runtime và Android APK\n2. Nâng cấp nhận diện trạng thái DDNS: hiển thị xanh khi cập nhật thành công (OK), cảnh báo đỏ/vàng khi lỗi kết nối/tắt DDNS\n3. Tooltip hiển thị đầy đủ tên miền Dynamic DNS\n4. Tối ưu luồng kiểm tra trạng thái toàn diện 7 module"
+  "releaseNotes": "1. Khắc phục đếm và hiển thị tab 'URL Hoàn Tất' trên Dashboard Host và APK\n2. Sửa lỗi sập session khiến Host/APK văng ra màn hình đăng nhập khi download xong\n3. Thêm cờ trạng thái (Hoàn tất, Đang tải, Chờ, Lỗi) và thu gọn nút bấm trong tab Log URL APK\n4. Sửa màu chữ Spinner và màu Checkbox ở theme tối\n5. Hiệu ứng chớp LED 10 giây khi khởi động lại ESP32 từ Host và APK"
 }

@@ -135,6 +135,7 @@ public class MainActivity extends Activity {
     private static int MUTED = Color.rgb(112, 126, 116);
     private static int GREEN = Color.rgb(36, 109, 82);
     private static int SURFACE = Color.WHITE;
+    private static int CARD = Color.WHITE;
     private static int PAGE = Color.rgb(244, 245, 239);
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService io = Executors.newFixedThreadPool(3);
@@ -278,6 +279,7 @@ public class MainActivity extends Activity {
         MUTED = darkTheme ? Color.rgb(164, 178, 168) : Color.rgb(112, 126, 116);
         GREEN = darkTheme ? Color.rgb(85, 174, 134) : Color.rgb(36, 109, 82);
         SURFACE = darkTheme ? Color.rgb(32, 43, 37) : Color.WHITE;
+        CARD = darkTheme ? Color.rgb(40, 52, 45) : Color.rgb(255, 255, 255);
         PAGE = darkTheme ? Color.rgb(21, 28, 24) : Color.rgb(244, 245, 239);
         if (getWindow() != null) {
             getWindow().setStatusBarColor(PAGE); getWindow().setNavigationBarColor(PAGE);
@@ -1279,8 +1281,18 @@ public class MainActivity extends Activity {
                 .setTitle(tr("Khởi động lại ESP32"))
                 .setMessage(tr("Bạn có chắc chắn muốn khởi động lại ESP32? Thiết bị sẽ ngắt kết nối trong vài giây."))
                 .setPositiveButton(tr("Khởi động lại"), (dialog, which) -> {
-                    runIo(() -> request(host, "/api/local/device/reboot", "POST", new JSONObject(), sessionToken),
-                        r -> toast(r.optString("message", "ESP32 đang khởi động lại...")),
+                    runIo(() -> {
+                        try {
+                            if (!sessionToken.isEmpty() && host != null && !host.isEmpty()) {
+                                return request(host, "/api/local/device/reboot", "POST", new JSONObject(), sessionToken);
+                            }
+                        } catch (Exception ignored) {}
+                        String devUrl = resolveDeviceBaseUrl();
+                        if (devUrl.isEmpty()) devUrl = "http://192.168.4.1";
+                        String targetPath = devUrl.contains("192.168.4.1") ? "/setup/reboot" : "/api/v1/system/reboot";
+                        return request(devUrl, targetPath, "POST", new JSONObject(), config != null ? config.optString("deviceToken", "") : "");
+                    },
+                        r -> toast(r.optString("message", "ESP32 đang khởi động lại (LED chớp 10s)...")),
                         e -> toast("Lỗi: " + e.getMessage()));
                 })
                 .setNegativeButton(tr("Hủy"), null)
@@ -1524,9 +1536,34 @@ public class MainActivity extends Activity {
         return "flash-config-" + normalizedModel + "-" + key;
     }
 
+    private ArrayAdapter<String> createThemedSpinnerAdapter(String[] choices) {
+        return new ArrayAdapter<String>(this, android.R.layout.simple_spinner_dropdown_item, choices) {
+            @Override
+            public View getView(int position, View convertView, ViewGroup parent) {
+                View v = super.getView(position, convertView, parent);
+                if (v instanceof TextView) {
+                    ((TextView) v).setTextColor(INK);
+                    ((TextView) v).setTextSize(13);
+                }
+                return v;
+            }
+            @Override
+            public View getDropDownView(int position, View convertView, ViewGroup parent) {
+                View v = super.getDropDownView(position, convertView, parent);
+                if (v instanceof TextView) {
+                    ((TextView) v).setTextColor(INK);
+                    ((TextView) v).setBackgroundColor(CARD);
+                    ((TextView) v).setTextSize(13);
+                    v.setPadding(dp(12), dp(10), dp(12), dp(10));
+                }
+                return v;
+            }
+        };
+    }
+
     private Spinner spinner(String[] choices) {
         Spinner control = new Spinner(this);
-        control.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, choices));
+        control.setAdapter(createThemedSpinnerAdapter(choices));
         return control;
     }
 
@@ -2552,11 +2589,25 @@ public class MainActivity extends Activity {
 
     private void updateDashboardJobFilters() {
         if (body == null) return;
+        int queued = 0, completed = 0, failed = 0;
+        if (dashboardJobs != null) {
+            for (int i = 0; i < dashboardJobs.length(); i++) {
+                JSONObject job = dashboardJobs.optJSONObject(i); if (job == null) continue;
+                String st = job.optString("status");
+                if (st.equals("QUEUED") || st.equals("DISPATCHED") || st.equals("DOWNLOADING") || st.equals("CANCEL_REQUESTED")) queued++;
+                else if (st.equals("COMPLETED")) completed++;
+                else if (st.equals("FAILED") || st.equals("ERROR") || st.equals("CANCELLED") || st.equals("RECOVERY_REQUIRED")) failed++;
+            }
+        }
         for (String filter : new String[]{"QUEUED", "COMPLETED", "FAILED"}) {
             View view = body.findViewWithTag("dashboard-filter-" + filter);
             if (view instanceof Button) {
+                Button btn = (Button) view;
                 boolean selected = dashboardJobFilter.equals(filter);
-                styleDashboardJobFilter((Button) view, selected);
+                styleDashboardJobFilter(btn, selected);
+                int count = filter.equals("QUEUED") ? queued : filter.equals("COMPLETED") ? completed : failed;
+                String baseTitle = filter.equals("QUEUED") ? "Đang chờ" : filter.equals("COMPLETED") ? "Đã hoàn tất" : "Lỗi";
+                btn.setText(tr(baseTitle) + " (" + count + ")");
             }
         }
     }
@@ -4067,7 +4118,48 @@ public class MainActivity extends Activity {
 
     private void displayDashboardJobs(JSONArray jobs) {
         if (!activePage.equals("dashboard") || body == null) return;
-        dashboardJobs = jobs == null ? new JSONArray() : jobs;
+        java.util.LinkedHashMap<String, JSONObject> map = new java.util.LinkedHashMap<>();
+        if (jobs != null) {
+            for (int i = 0; i < jobs.length(); i++) {
+                JSONObject j = jobs.optJSONObject(i);
+                if (j != null && !j.optString("id").isEmpty()) {
+                    map.put(j.optString("id"), j);
+                }
+            }
+        }
+        if (status != null) {
+            JSONObject hist = status.optJSONObject("dashboardHistory");
+            if (hist != null) {
+                JSONArray rJobs = hist.optJSONArray("jobs");
+                if (rJobs != null) {
+                    for (int i = 0; i < rJobs.length(); i++) {
+                        JSONObject rj = rJobs.optJSONObject(i);
+                        if (rj == null) continue;
+                        String id = rj.optString("id");
+                        if (id.isEmpty()) continue;
+                        if (!map.containsKey(id)) {
+                            String st = rj.optString("status");
+                            if (st.equals("COMPLETED") || st.equals("FAILED") || st.equals("CANCELLED") || st.equals("RECOVERY_REQUIRED")) {
+                                map.put(id, rj);
+                            }
+                        } else {
+                            JSONObject existing = map.get(id);
+                            String exStatus = existing != null ? existing.optString("status") : "";
+                            String rStatus = rj.optString("status");
+                            boolean rTerminal = rStatus.equals("COMPLETED") || rStatus.equals("FAILED") || rStatus.equals("CANCELLED") || rStatus.equals("RECOVERY_REQUIRED");
+                            boolean exTerminal = exStatus.equals("COMPLETED") || exStatus.equals("FAILED") || exStatus.equals("CANCELLED") || exStatus.equals("RECOVERY_REQUIRED");
+                            if (rTerminal && !exTerminal) {
+                                map.put(id, rj);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        dashboardJobs = new JSONArray();
+        for (JSONObject j : map.values()) {
+            dashboardJobs.put(j);
+        }
         int completedCount = 0, failedCount = 0;
         for (int i = dashboardJobs.length() - 1; i >= 0; i--) {
             JSONObject job = dashboardJobs.optJSONObject(i); if (job == null) continue;
@@ -4078,8 +4170,16 @@ public class MainActivity extends Activity {
                 failedCount++;
             }
         }
+        if (status != null) {
+            JSONObject hist = status.optJSONObject("dashboardHistory");
+            if (hist != null) {
+                completedCount = Math.max(completedCount, hist.optInt("completedCount", 0));
+                failedCount = Math.max(failedCount, hist.optInt("failedCount", 0));
+            }
+        }
         setCard("dashboard-completed", completedCount + " URL\nHoàn tất · 30 ngày gần nhất");
         setCard("dashboard-failed", failedCount + " URL\nTải lỗi hoặc cần khôi phục");
+        updateDashboardJobFilters();
         renderDashboardJobMonitor();
     }
 
@@ -4111,11 +4211,58 @@ public class MainActivity extends Activity {
             JSONObject entry = entries.optJSONObject(i); if (entry == null) continue;
             LinearLayout item = cardStart(list);
             label(item, entry.optString("url"), 13, INK, true);
+
+            String url = entry.optString("url");
+            String statusState = entry.optString("result", "QUEUED");
+            if (entry.has("urlStatus") && !entry.optString("urlStatus").isEmpty()) {
+                statusState = entry.optString("urlStatus");
+            }
+            if (dashboardJobs != null) {
+                for (int j = dashboardJobs.length() - 1; j >= 0; j--) {
+                    JSONObject job = dashboardJobs.optJSONObject(j);
+                    if (job != null && url.equals(job.optString("url"))) {
+                        statusState = job.optString("status", statusState);
+                        break;
+                    }
+                }
+            }
+
+            int badgeColor;
+            String badgeText;
+            if (statusState.equals("COMPLETED")) {
+                badgeColor = Color.rgb(16, 185, 129);
+                badgeText = "● " + tr("HOÀN TẤT");
+            } else if (statusState.equals("DOWNLOADING") || statusState.equals("VERIFYING")) {
+                badgeColor = Color.rgb(14, 165, 233);
+                badgeText = "● " + tr("ĐANG TẢI");
+            } else if (statusState.equals("QUEUED") || statusState.equals("DISPATCHED")) {
+                badgeColor = Color.rgb(245, 158, 11);
+                badgeText = "● " + tr("ĐANG CHỜ");
+            } else if (statusState.equals("FAILED") || statusState.equals("ERROR") || statusState.equals("CANCELLED") || statusState.equals("RECOVERY_REQUIRED")) {
+                badgeColor = Color.rgb(239, 68, 68);
+                badgeText = "● " + tr("LỖI");
+            } else {
+                badgeColor = MUTED;
+                badgeText = "● " + statusState;
+            }
+
+            TextView badge = label(item, badgeText, 11, badgeColor, true);
+            badge.setPadding(0, 0, 0, dp(2));
+
             long received = entry.optLong("receivedAt", 0);
-            label(item, (entry.optString("result").equals("QUEUED") ? "ĐƯA VÀO QUEUE" : "TỪ CHỐI") + " · chat " + entry.optString("chatId", "—") + "\n" + (received > 0 ? new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new java.util.Date(received * 1000L)) : "Thời gian chưa đồng bộ") + "\n" + entry.optString("detail", ""), 11, MUTED, false);
+            label(item, "Chat " + entry.optString("chatId", "—") + " · " + (received > 0 ? new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new java.util.Date(received * 1000L)) : "Thời gian chưa đồng bộ") + (entry.optString("detail").isEmpty() ? "" : "\n" + entry.optString("detail")), 11, MUTED, false);
+
             LinearLayout actions = horizontal(item);
-            Button copy = button("Copy", false), force = button("Force download", false), restart = button("Restart", false), delete = button("Delete", false);
-            for (Button action : new Button[]{copy, force, restart, delete}) actions.addView(action, new LinearLayout.LayoutParams(0, dp(42), 1));
+            actions.setPadding(0, dp(4), 0, 0);
+            Button copy = button("📋 Copy", false), force = button("⚡ Force", false), restart = button("↻ Thử lại", false), delete = button("🗑 Xóa", false);
+            for (Button action : new Button[]{copy, force, restart, delete}) {
+                action.setMinHeight(dp(28));
+                action.setTextSize(10.5f);
+                action.setPadding(dp(2), 0, dp(2), 0);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(28), 1);
+                lp.setMargins(dp(2), 0, dp(2), 0);
+                actions.addView(action, lp);
+            }
             copy.setOnClickListener(clicked -> { ClipboardManager manager = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE); if (manager != null) { manager.setPrimaryClip(ClipData.newPlainText("URL", entry.optString("url"))); toast("Đã copy URL."); } });
             force.setOnClickListener(clicked -> createLogJob(entry.optString("url"), true));
             restart.setOnClickListener(clicked -> restartLogJob(entry.optString("url")));
@@ -4862,7 +5009,7 @@ public class MainActivity extends Activity {
         Spinner spinner = new Spinner(this);
         String[] translatedLabels = new String[labels.length];
         for (int i = 0; i < labels.length; i++) translatedLabels[i] = tr(labels[i]);
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, translatedLabels); spinner.setAdapter(adapter);
+        spinner.setAdapter(createThemedSpinnerAdapter(translatedLabels));
         JSONObject d = config.optJSONObject("downloadSettings"); if (d == null) d = new JSONObject();
         String selected = d.optString(key, defaultValue); for (int i=0;i<values.length;i++) if (values[i].equals(selected)) spinner.setSelection(i);
         spinner.setTag("select-" + key); fields.put(key, spinner); body.addView(spinner, full());
@@ -4876,7 +5023,7 @@ public class MainActivity extends Activity {
     }
 
     private void addCheck(String key, String title, boolean value) {
-        CheckBox check = new CheckBox(this); check.setText(tr(title)); check.setTextColor(INK); check.setTextSize(13); check.setChecked(value); fields.put(key, check); body.addView(check, full());
+        CheckBox check = new CheckBox(this); check.setText(tr(title)); check.setTextColor(INK); check.setTextSize(13); check.setChecked(value); check.setButtonTintList(android.content.res.ColorStateList.valueOf(GREEN)); fields.put(key, check); body.addView(check, full());
         check.setOnCheckedChangeListener((buttonView, isChecked) -> { if (!rendering && activePage.equals("downloads")) downloadsDirty=true; if (!rendering && activePage.equals("settings")) settingsDirty=true; });
     }
 

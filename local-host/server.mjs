@@ -1888,7 +1888,7 @@ async function finishJob(job, child, state) {
   }
   if (job.telegramChatId) {
     const resultText = state.success
-      ? `✅ Tải xong\n${job.outputPath ? outputFileName(job.outputPath) : job.url}`
+      ? `✅ Tải xong\n${job.outputPath ? path.basename(job.outputPath) : job.url}`
       : (state.cancelled ? `⏹ Đã dừng job ${job.id}.` : `❌ Job ${job.id} thất bại: ${state.error ?? "Không rõ lỗi"}`);
     try {
       await sendTelegramMessage(job.telegramChatId, resultText);

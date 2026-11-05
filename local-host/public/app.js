@@ -791,8 +791,9 @@ function mergeDashboardJobs(deviceJobs = [], runtimeJobs = []) {
     if (!id) continue;
     const existing = merged.get(id);
     if (!existing) {
-      // ESP32 is the authoritative queue and history owner. Runtime entries
-      // that are no longer present on the device are stale execution copies.
+      if (["COMPLETED", "FAILED", "CANCELLED", "RECOVERY_REQUIRED"].includes(runtimeJob.status)) {
+        merged.set(id, { ...runtimeJob });
+      }
       continue;
     }
     const deviceTerminal = ["COMPLETED", "FAILED", "CANCELLED", "RECOVERY_REQUIRED"].includes(existing.status);
@@ -816,7 +817,7 @@ function dashboardJobTimestamp(job) {
   const created = String(job.createdAt ?? "");
   if (created.startsWith("unix:")) return (Number(created.slice(5)) || 0) * 1000;
   const createdAt = Date.parse(created);
-  return Number.isFinite(createdAt) && createdAt > 0 ? createdAt : 0;
+  return Number.isFinite(createdAt) && createdAt > 0 ? createdAt : Date.now();
 }
 
 function updateDashboardStats() {
@@ -826,8 +827,10 @@ function updateDashboardStats() {
   const failedJobs = recentTerminal.filter((job) => ["FAILED", "CANCELLED", "RECOVERY_REQUIRED"].includes(job.status));
   const measuredBytes = completedJobs.reduce((sum, job) => sum + (Number(job.outputBytes) || 0), 0);
   const totalCompletedBytes = Math.max(measuredBytes, Number(dashboardHistory.completedBytes) || 0);
-  $("#completed-url-count").textContent = completedJobs.length + " URL";
-  $("#failed-url-count").textContent = failedJobs.length + " URL";
+  const countCompleted = Math.max(completedJobs.length, Number(dashboardHistory.completedCount) || 0);
+  const countFailed = Math.max(failedJobs.length, Number(dashboardHistory.failedCount) || 0);
+  $("#completed-url-count").textContent = countCompleted + " URL";
+  $("#failed-url-count").textContent = countFailed + " URL";
   $("#completed-download-bytes").textContent = `Dung lượng: ${formatBytes(totalCompletedBytes)} · 30 ngày`;
 }
 
@@ -842,12 +845,15 @@ function renderDashboardJobs(jobs = cachedJobs) {
     failed: cachedJobs.filter((job) => ["FAILED", "CANCELLED", "RECOVERY_REQUIRED"].includes(job.status)),
   };
   const completedTotalBytes = grouped.completed.reduce((acc, job) => acc + (Number(job.outputBytes) || 0), 0);
+  const queuedTab = $('[data-dashboard-jobs="queued"]');
+  if (queuedTab) queuedTab.textContent = `Đang chờ (${grouped.queued.length})`;
   const completedTab = $('[data-dashboard-jobs="completed"]');
   if (completedTab) {
-    completedTab.textContent = completedTotalBytes > 0
-      ? `Đã hoàn tất (${formatBytes(completedTotalBytes)})`
-      : "Đã hoàn tất";
+    const sizeStr = completedTotalBytes > 0 ? ` · ${formatBytes(completedTotalBytes)}` : "";
+    completedTab.textContent = `Đã hoàn tất (${grouped.completed.length}${sizeStr})`;
   }
+  const failedTab = $('[data-dashboard-jobs="failed"]');
+  if (failedTab) failedTab.textContent = `Lỗi (${grouped.failed.length})`;
   const items = [...(grouped[dashboardJobFilter] ?? [])].reverse().slice(0, 12);
   for (const job of items) {
     const row = el("article", "dashboard-job");
