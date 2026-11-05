@@ -593,6 +593,7 @@ uint32_t lastDdnsUpdateMs = 0;
 String ddnsLastStatus = "Chưa cập nhật";
 bool telegramEnabled = true;
 bool apEnabled = true;
+bool setupApStarted = false;
 bool apRecoveryMode = false;
 bool apTogglePending = false;
 uint32_t wifiDisconnectedSinceMs = 0;
@@ -1297,12 +1298,14 @@ void loadJobs() {
 bool isSetupApActive() {
     const wifi_mode_t mode = WiFi.getMode();
     if (mode != WIFI_AP && mode != WIFI_AP_STA) return false;
-    const IPAddress address = WiFi.softAPIP();
-    return address[0] == 192 && address[1] == 168 && address[2] == 4 && address[3] == 1;
+    return setupApStarted;
 }
 
 void startSetupAccessPoint() {
-    if (!apEnabled && !apRecoveryMode) return;
+    if (!apEnabled && !apRecoveryMode) {
+        setupApStarted = false;
+        return;
+    }
     setupSsid = kSetupSsid;
     setupPassword = kSetupPassword;
 
@@ -1313,11 +1316,8 @@ void startSetupAccessPoint() {
         WiFi.mode(WIFI_AP_STA);
     }
     WiFi.setSleep(false);
-    if (isSetupApActive()) {
-        Serial.println("Provisioning AP: already active; keeping current AP.");
-        return;
-    }
-    const bool ipConfigured = WiFi.softAPConfig(IPAddress(192, 168, 4, 1), IPAddress(192, 168, 4, 1), IPAddress(255, 255, 255, 0));
+
+    WiFi.softAPConfig(IPAddress(192, 168, 4, 1), IPAddress(192, 168, 4, 1), IPAddress(255, 255, 255, 0));
     const uint8_t channel = (WiFi.status() == WL_CONNECTED && !savedSsid.isEmpty()) ? static_cast<uint8_t>(WiFi.channel()) : 1;
     bool apStarted = WiFi.softAP(setupSsid.c_str(), setupPassword.c_str(), channel, false, 4);
     if (!apStarted) {
@@ -1325,12 +1325,13 @@ void startSetupAccessPoint() {
         const uint8_t retryChannel = (WiFi.status() == WL_CONNECTED && !savedSsid.isEmpty()) ? static_cast<uint8_t>(WiFi.channel()) : 1;
         apStarted = WiFi.softAP(setupSsid.c_str(), setupPassword.c_str(), retryChannel, false, 4);
     }
+    setupApStarted = apStarted;
     if (apStarted) {
-        Serial.printf("Provisioning AP: %s (%s)\n", setupSsid.c_str(), WiFi.softAPIP().toString().c_str());
-        Serial.printf("Provisioning AP password: %s\n", setupPassword.c_str());
-        Serial.println("Connect a phone or PC to this AP, then open http://192.168.4.1/");
+        Serial.printf("[AP SUCCESS] Provisioning AP active: SSID '%s' (IP: %s)\n", setupSsid.c_str(), WiFi.softAPIP().toString().c_str());
+        Serial.printf("[AP SUCCESS] Provisioning AP password: '%s'\n", setupPassword.c_str());
+        Serial.println("[AP SUCCESS] Connect phone or PC to this AP, then open http://192.168.4.1/");
     } else {
-        Serial.printf("ERROR: could not start setup AP (IP config %s)\n", ipConfigured ? "ok" : "failed");
+        Serial.println("[AP ERROR] Could not start setup AP!");
     }
 }
 
@@ -1384,7 +1385,6 @@ void beginWifi() {
         apEnabled = true;
         wifiNextReconnectAtMs = 0;
         WiFi.setAutoReconnect(false);
-        WiFi.disconnect(true, true);
         startSetupAccessPoint();
         Serial.println("=================================================");
         Serial.println("[AP] NO WI-FI CONFIG SAVED - FIRST BOOT PROVISIONING");
