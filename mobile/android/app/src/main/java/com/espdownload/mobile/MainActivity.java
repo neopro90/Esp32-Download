@@ -1027,7 +1027,10 @@ public class MainActivity extends Activity {
         chooseFirmware.setOnClickListener(v -> chooseFirmwareFiles());
         firmwareRows = column(panel);
 
-        EditText githubUrl = input("flash-github-url", "URL GitHub firmware (để trống sẽ tự lấy theo chip)", prefs.getString("flash-github-url", "https://raw.githubusercontent.com/neopro90/Esp32-Download/main/firmware-cyd/releases/"), "https://raw.githubusercontent.com/neopro90/Esp32-Download/main/firmware-cyd/releases/",
+        String defaultRepoUrl = "https://github.com/neopro90/Esp32-Download";
+        String savedGithubUrl = prefs.getString("flash-github-url", defaultRepoUrl);
+        if (savedGithubUrl.contains("raw.githubusercontent.com")) savedGithubUrl = defaultRepoUrl;
+        EditText githubUrl = input("flash-github-url", "URL GitHub firmware (để trống sẽ tự lấy theo chip)", savedGithubUrl, defaultRepoUrl,
             InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI, false);
         panel.addView(githubUrl, full());
         githubUrl.addTextChangedListener(new TextWatcher() {
@@ -1281,16 +1284,16 @@ public class MainActivity extends Activity {
         String targetOffset = fwInfo[2];
 
         String address = source == null ? "" : source.trim();
-        String defaultBase = "https://raw.githubusercontent.com/neopro90/Esp32-Download/main/firmware-cyd/releases/";
+        String defaultBase = "https://raw.githubusercontent.com/neopro90/Esp32-Download/main/releases/v1.3/";
 
         if (address.isEmpty() || address.equalsIgnoreCase("https://github.com/neopro90/Esp32-Download")
             || address.equalsIgnoreCase("https://github.com/neopro90/Esp32-Download/")) {
-            address = defaultBase + targetFolder + "/" + targetFilename;
+            address = defaultBase + targetFilename;
         } else if (address.startsWith("https://github.com/") && address.contains("/blob/")) {
             address = "https://raw.githubusercontent.com/" + address.substring("https://github.com/".length()).replaceFirst("/blob/", "/");
         } else if (!address.toLowerCase(Locale.ROOT).endsWith(".bin")) {
             if (!address.endsWith("/")) address += "/";
-            address += targetFolder + "/" + targetFilename;
+            address += targetFilename;
         }
 
         if (!address.startsWith("https://")) {
