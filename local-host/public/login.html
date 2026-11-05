@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Đăng nhập · ESP Download</title>
+  <link rel="stylesheet" href="/login.css">
+</head>
+<body>
+  <main class="login-shell">
+    <section class="login-card">
+      <div class="brand-mark" aria-hidden="true">ED</div>
+      <p class="eyebrow">ESP DOWNLOAD · LOCAL HOST</p>
+      <h1>Đăng nhập</h1>
+      <p class="intro">Đăng nhập để quản lý ESP32, hàng đợi tải và cấu hình local host.</p>
+      <form id="login-form">
+        <label for="username">Tên đăng nhập</label>
+        <input id="username" name="username" type="text" autocomplete="username" maxlength="32" required autofocus>
+        <label for="password">Mật khẩu</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+        <button id="login-button" type="submit">Đăng nhập</button>
+        <p id="login-feedback" role="status" aria-live="polite"></p>
+      </form>
+      <p class="default-hint">Tài khoản mặc định lần đầu: <strong>admin / admin</strong>. Hãy đổi mật khẩu sau khi vào dashboard.</p>
+    </section>
+  </main>
+  <script type="module" src="/login.js"></script>
+</body>
+</html>

@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>ESP Download · Local</title>
+  <link rel="stylesheet" href="/styles.css?v=1.3.1">
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="ESP Download trang chủ">
+        <span class="brand-mark">ED</span>
+        <span><strong>ESP Download</strong><small>LOCAL CONTROL</small></span>
+      </a>
+      <div class="connection-group">
+        <span id="device-pill" class="pill muted"><i></i> ESP32: đang kiểm tra</span>
+        <span id="worker-pill" class="pill muted"><i></i> Worker: đang kiểm tra</span>
+        <button id="reboot-button" class="icon-button danger-button" type="button" aria-label="Khởi động lại ESP32" title="Khởi động lại ESP32">⟲</button>
+        <button id="theme-toggle" class="icon-button theme-button" type="button" aria-label="Đổi giao diện sáng/tối" title="Đổi giao diện sáng/tối">☾</button>
+        <button id="lang-toggle" class="icon-button lang-button" type="button" aria-label="Đổi ngôn ngữ" title="Đổi ngôn ngữ (VI / EN / CN)">VI</button>
+        <button id="refresh-button" class="icon-button" title="Làm mới" aria-label="Làm mới">↻</button>
+      </div>
+    </header>
+
+    <nav class="primary-nav" role="tablist" aria-label="Điều hướng local host">
+      <button class="nav-tab active" type="button" role="tab" aria-selected="true" data-page-target="dashboard">Dashboard</button>
+      <button class="nav-tab" type="button" role="tab" aria-selected="false" data-page-target="queue">Hàng đợi</button>
+      <button class="nav-tab" type="button" role="tab" aria-selected="false" data-page-target="device">Wi‑Fi / AP</button>
+      <button class="nav-tab" type="button" role="tab" aria-selected="false" data-page-target="settings">Host & Telegram</button>
+      <button class="nav-tab" type="button" role="tab" aria-selected="false" data-page-target="downloads">Tải xuống</button>
+      <button class="nav-tab" type="button" role="tab" aria-selected="false" data-page-target="logs">Log URL</button>
+      <button class="nav-tab" type="button" role="tab" aria-selected="false" data-page-target="system-check">Check System</button>
+      <button class="nav-tab" type="button" role="tab" aria-selected="false" data-page-target="security">Bảo mật</button>
+    </nav>
+
+    <main>
+      <section class="hero" data-page="dashboard">
+        <div class="hero-copy-block">
+          <p class="eyebrow">CONTROL PLANE · WINDOWS LOCAL HOST</p>
+          <h1>ESP32 Chatbot<br><em>Auto Downloader.</em></h1>
+          <p class="hero-copy">ESP32 là trung tâm điều phối; Gateway nối Wi‑Fi, Telegram và Windows worker. Cấu hình, hàng đợi và trạng thái dùng chung trên thiết bị.</p>
+          <div class="hero-live-state"><i id="pipeline-overall-dot"></i><span id="pipeline-overall-state">Đang đồng bộ trạng thái pipeline…</span></div>
+        </div>
+        <div class="pipeline-map" role="img" aria-label="Pipeline Telegram, Gateway Wi‑Fi, ESP32, Local host và Android, Windows Runtime, và Storage">
+          <svg class="pipeline-routes pipeline-routes-desktop" viewBox="0 0 860 340" preserveAspectRatio="none" aria-hidden="true">
+            <g class="pipeline-route is-down" id="route-telegram"><path class="route-line" d="M214 127 C270 127 240 55 244 47"/><circle class="route-particle" r="3.5"><animateMotion dur="2.1s" repeatCount="indefinite" path="M214 127 C270 127 240 55 244 47"/></circle></g>
+            <g class="pipeline-route is-down" id="route-gateway"><path class="route-line" d="M336 86 C360 126 415 130 482 173"/><circle class="route-particle" r="3.5"><animateMotion dur="2.35s" repeatCount="indefinite" path="M336 86 C360 126 415 130 482 173"/></circle></g>
+            <g class="pipeline-route is-down" id="route-device-api"><path class="route-line" d="M214 259 C270 259 315 205 375 220"/><circle class="route-particle" r="3.5"><animateMotion dur="1.8s" repeatCount="indefinite" path="M214 259 C270 259 315 205 375 220"/></circle></g>
+            <g class="pipeline-route is-down" id="route-worker"><path class="route-line" d="M589 218 C640 218 610 164 647 164"/><circle class="route-particle" r="3.5"><animateMotion dur="1.65s" repeatCount="indefinite" path="M589 218 C640 218 610 164 647 164"/></circle></g>
+            <g class="pipeline-route is-down" id="route-storage"><path class="route-line" d="M590 190 C650 190 650 245 710 245"/><circle class="route-particle" r="3.5"><animateMotion dur="1.9s" repeatCount="indefinite" path="M590 190 C650 190 650 245 710 245"/></circle></g>
+            <g class="pipeline-route is-down" id="route-gateway-worker"><path class="route-line" d=""/><circle class="route-particle" r="3.5"><animateMotion dur="2.0s" repeatCount="indefinite" path=""/></circle></g>
+            <g class="pipeline-route is-down" id="route-device-api-gateway"><path class="route-line" d=""/><circle class="route-particle" r="3.5"><animateMotion dur="1.9s" repeatCount="indefinite" path=""/></circle></g>
+            <g class="pipeline-route is-down" id="route-domain"><path class="route-line" d=""/><circle class="route-particle" r="3.5"><animateMotion dur="2.1s" repeatCount="indefinite" path=""/></circle></g>
+          </svg>
+          <svg class="pipeline-routes pipeline-routes-mobile" viewBox="0 0 620 300" preserveAspectRatio="none" aria-hidden="true">
+            <g class="pipeline-route is-down" id="route-device-api-mobile"><path class="route-line" d="M154 150 C181 150 188 133 223 133"/><circle class="route-particle" r="3.5"><animateMotion dur="1.8s" repeatCount="indefinite" path="M154 150 C181 150 188 133 223 133"/></circle></g>
+            <g class="pipeline-route is-down" id="route-gateway-mobile"><path class="route-line" d="M310 62 C310 82 332 91 322 111"/><circle class="route-particle" r="3.5"><animateMotion dur="2.35s" repeatCount="indefinite" path="M310 62 C310 82 332 91 322 111"/></circle></g>
+            <g class="pipeline-route is-down" id="route-worker-mobile"><path class="route-line" d="M397 133 C432 133 439 150 466 150"/><circle class="route-particle" r="3.5"><animateMotion dur="1.65s" repeatCount="indefinite" path="M397 133 C432 133 439 150 466 150"/></circle></g>
+            <g class="pipeline-route is-down" id="route-telegram-mobile"><path class="route-line" d="M310 238 C310 220 332 211 322 189"/><circle class="route-particle" r="3.5"><animateMotion dur="2.1s" repeatCount="indefinite" path="M310 238 C310 220 332 211 322 189"/></circle></g>
+            <g class="pipeline-route is-down" id="route-storage-mobile"><path class="route-line" d="M450 243 C485 243 480 265 510 265"/><circle class="route-particle" r="3.5"><animateMotion dur="1.9s" repeatCount="indefinite" path="M450 243 C485 243 480 265 510 265"/></circle></g>
+            <g class="pipeline-route is-down" id="route-gateway-worker-mobile"><path class="route-line" d=""/><circle class="route-particle" r="3.5"><animateMotion dur="2.0s" repeatCount="indefinite" path=""/></circle></g>
+            <g class="pipeline-route is-down" id="route-device-api-gateway-mobile"><path class="route-line" d=""/><circle class="route-particle" r="3.5"><animateMotion dur="1.9s" repeatCount="indefinite" path=""/></circle></g>
+            <g class="pipeline-route is-down" id="route-domain-mobile"><path class="route-line" d=""/><circle class="route-particle" r="3.5"><animateMotion dur="2.1s" repeatCount="indefinite" path=""/></circle></g>
+          </svg>
+          <article class="pipeline-node pipeline-node-device-api" id="pipeline-device-api" data-state="down"><span class="pipeline-node-icon">API</span><span class="pipeline-node-copy"><small>STAGE 1 · API CLIENT</small><strong>Local host + Android</strong><em id="pipeline-device-api-state">Device API offline</em></span></article>
+          <article class="pipeline-node pipeline-node-domain" id="pipeline-domain" data-state="down"><span class="pipeline-node-icon">🌐</span><span class="pipeline-node-copy"><small>WAN · DDNS</small><strong id="pipeline-domain-title">Domain</strong><em id="pipeline-domain-state">Chưa cấu hình</em></span></article>
+          <article class="pipeline-node pipeline-node-gateway" id="pipeline-gateway" data-state="down"><span class="pipeline-node-icon">⌁</span><span class="pipeline-node-copy"><small>STAGE 2 · NETWORK</small><strong>Wi‑Fi Gateway</strong><em id="pipeline-gateway-state">Chưa kết nối</em></span></article>
+          <article class="pipeline-node pipeline-node-core" id="pipeline-esp32" data-state="down"><span class="pipeline-core-mark">ESP</span><span class="pipeline-node-copy"><small>STAGE 3 · CORE</small><strong>ESP32‑WROOM‑32</strong><em id="pipeline-esp32-state">Đang chờ</em></span></article>
+          <article class="pipeline-node pipeline-node-worker" id="pipeline-worker" data-state="down"><span class="pipeline-node-icon">PC</span><span class="pipeline-node-copy"><small>STAGE 4 · WORKER</small><strong>Windows Runtime</strong><em id="pipeline-worker-state">Chưa có heartbeat</em></span></article>
+          <article class="pipeline-node pipeline-node-telegram" id="pipeline-telegram" data-state="down"><span class="pipeline-node-icon">✈</span><span class="pipeline-node-copy"><small>STAGE 1 · TRIGGER</small><strong>Telegram API</strong><em id="pipeline-telegram-state">Chưa cấu hình</em></span></article>
+          <article class="pipeline-node pipeline-node-storage" id="pipeline-storage" data-state="down"><span class="pipeline-node-icon">▰</span><span class="pipeline-node-copy"><small>STAGE 5 · OUTPUT</small><strong>Storage · Windows</strong><em id="pipeline-storage-state">Chưa kiểm tra thư mục</em></span></article>
+        </div>
+      </section>
+
+      <section class="status-grid" data-page="dashboard" aria-label="Tình trạng hệ thống">
+        <article class="status-card"><span class="status-icon cyan">◈</span><div><small>ESP32 / WIFI</small><strong id="device-name">Chưa kết nối</strong><span id="device-meta" class="subtle">Nhập địa chỉ API của thiết bị</span><span id="device-wifi-meta" class="subtle">Wi‑Fi: chưa kiểm tra</span></div></article>
+        <article class="status-card"><span class="status-icon violet">⌘</span><div><small>LOCAL WORKER</small><strong id="worker-state">Đang khởi tạo</strong><span id="worker-meta" class="subtle">Chờ thiết bị và yt-dlp</span></div></article>
+        <article class="status-card"><span class="status-icon green">▱</span><div><small>THƯ MỤC ĐẦU RA</small><strong id="output-state">Chưa kiểm tra</strong><span id="output-meta" class="subtle">Đường dẫn được cấu hình bên dưới</span></div></article>
+        <article class="status-card"><span class="status-icon amber">▦</span><div><small>HÀNG ĐỢI</small><strong id="queue-count">—</strong><span id="queue-meta" class="subtle">Job được lưu trên ESP32</span></div></article>
+        <article class="status-card"><span class="status-icon cyan">⌁</span><div><small>DEVICE API / TOKEN</small><strong id="api-state">Đang kiểm tra</strong><span id="api-meta" class="subtle">Kiểm tra reachability và xác thực</span><span id="api-token-tail" class="subtle">Token: chưa kiểm tra</span></div></article>
+        <article class="status-card"><span class="status-icon green">▣</span><div><small>ESP32 SETTINGS DATABASE</small><strong id="settings-db-state">Đang kiểm tra</strong><span id="settings-db-meta" class="subtle">Cấu hình dùng chung · LittleFS</span></div></article>
+        <article class="status-card metric-card"><span class="status-icon violet">◉</span><div><small>CPU · 2 CORE</small><strong id="cpu-state">—</strong><span id="cpu-meta" class="subtle">Chờ dữ liệu tải CPU</span><div class="metric-track"><span id="cpu-bar"></span></div></div></article>
+        <article class="status-card metric-card"><span class="status-icon amber">▤</span><div><small>RAM · HEAP</small><strong id="ram-state">—</strong><span id="ram-meta" class="subtle">PSRAM: —</span><div class="metric-track"><span id="ram-bar"></span></div></div></article>
+        <article class="status-card metric-card"><span class="status-icon green">▰</span><div><small>STORAGE · LITTLEFS</small><strong id="storage-state">—</strong><span id="storage-meta" class="subtle">Phân vùng lưu queue</span><div class="metric-track"><span id="storage-bar"></span></div></div></article>
+        <article class="status-card"><span class="status-icon amber">✉</span><div><small>TELEGRAM API</small><strong id="telegram-state">Chưa cấu hình</strong><span id="telegram-meta" class="subtle">Token chưa được kiểm tra</span><span id="telegram-token-tail" class="subtle">Token: chưa cấu hình</span></div></article>
+        <article class="status-card"><span class="status-icon green">✓</span><div><small>URL HOÀN TẤT · 30 NGÀY</small><strong id="completed-url-count">0 URL</strong><span id="completed-download-bytes" class="subtle">Dung lượng: đang tính…</span></div></article>
+        <article class="status-card"><span class="status-icon amber">!</span><div><small>URL LỖI · 30 NGÀY</small><strong id="failed-url-count">0 URL</strong><span class="subtle">Tải lỗi hoặc cần khôi phục</span></div></article>
+      </section>
+
+      <section class="panel dashboard-jobs-panel" data-page="dashboard">
+        <div class="section-heading"><div><p class="eyebrow">URL MONITOR</p><h2>Theo dõi URL theo trạng thái</h2></div><span class="section-number">JOBS</span></div>
+        <div class="segmented-tabs" role="tablist" aria-label="Lọc URL trên dashboard">
+          <button class="segment active" type="button" role="tab" aria-selected="true" data-dashboard-jobs="queued">Đang chờ</button>
+          <button class="segment" type="button" role="tab" aria-selected="false" data-dashboard-jobs="completed">Đã hoàn tất</button>
+          <button class="segment" type="button" role="tab" aria-selected="false" data-dashboard-jobs="failed">Lỗi</button>
+        </div>
+        <div id="dashboard-jobs-list" class="dashboard-jobs-list"><div class="empty-cell">Đang tải URL…</div></div>
+      </section>
+
+      <div id="global-message" class="notice hidden" role="status"></div>
+
+      <section class="panel settings-panel" data-page="settings">
+        <div class="section-heading"><div><p class="eyebrow">01 · KẾT NỐI</p><h2>Thiết lập local host</h2></div><span class="section-number">01</span></div>
+        <form id="settings-form" class="settings-grid">
+          <label class="field span-2"><span>ESP32 API URL</span><input id="device-url" name="deviceBaseUrl" type="url" placeholder="http://192.168.4.1" autocomplete="url" required><small>Khi ở AP provisioning dùng http://192.168.4.1; sau khi nối Wi‑Fi, nhập IP LAN hoặc espdownload.local.</small></label>
+          <label class="field span-2"><span>Windows runtime URL (LAN)</span><input id="runtime-url" name="runtimeBaseUrl" type="url" placeholder="http://192.168.1.25:8787" autocomplete="url"><small>Địa chỉ LAN của PC. ESP32 ping URL này mỗi 5 phút; khi phản hồi, gửi lần lượt các job pending đã lưu trên ESP32.</small></label>
+          <label class="field span-2"><span>Tên Windows worker</span><input id="worker-name" name="workerName" type="text" maxlength="48" spellcheck="false"><small>Định danh worker hiển thị trong trạng thái job và heartbeat.</small></label>
+          <label class="field span-2"><span>Device API token</span><input id="device-token" name="deviceToken" type="password" placeholder="Dán token từ Serial Monitor (để trống nếu đã lưu)" autocomplete="off"><small>Token được lưu cục bộ trên máy này và không hiển thị lại sau khi lưu.</small></label>
+          <div class="field span-2 pairing-card"><span>Ghép nối app Android bằng QR</span><div class="pairing-actions"><button id="device-pairing-show" class="button secondary" type="button">Tạo mã QR</button><a id="device-pairing-download" class="button secondary hidden" download="esp-download-device-api.png">Tải QR PNG</a><a class="button secondary" href="/esp-download.apk" download="esp-download.apk">Tải app Android (.APK)</a></div><img id="device-pairing-image" class="pairing-image hidden" alt="QR ghép nối device API ESP32"><small>Cài file APK trên điện thoại Android, sau đó quét mã QR để tự động đồng bộ kết nối với ESP32 và Windows Host.</small><span id="device-pairing-feedback" class="feedback" role="status"></span></div>
+          <label class="field"><span>Đường dẫn yt-dlp</span><input id="yt-dlp-path" name="ytDlpPath" type="text" placeholder="yt-dlp hoặc đường dẫn đầy đủ" spellcheck="false"></label>
+          <label class="field"><span>Đường dẫn FFmpeg</span><input id="ffmpeg-path" name="ffmpegPath" type="text" placeholder="Để trống để tự tìm trên PATH" spellcheck="false"></label>
+          <label class="field"><span>Đường dẫn Deno</span><input id="deno-path" name="denoPath" type="text" placeholder="Để trống nếu không cần" spellcheck="false"></label>
+          <label class="field"><span>Thư mục lưu file</span><input id="output-directory" name="outputDirectory" type="text" placeholder="D:\\Download hoặc \\\\NAS\\Share" spellcheck="false"><small>Nhập một đường dẫn Windows duy nhất: thư mục PC (D:\\Download) hoặc thư mục mạng đã kết nối trong Windows (\\\\NAS\\Share).</small></label>
+          <label class="field"><span>Thời hạn lưu job và log URL (ngày)</span><input id="url-retention-days" name="urlRetentionDays" type="number" min="0" max="3650" step="1"><small>0 tắt tự xóa; giới hạn trên LittleFS vẫn áp dụng.</small></label>
+          <div class="field span-2"><span>Lệnh Telegram điều khiển GPIO</span><div id="gpio-commands" class="gpio-command-list"></div><button id="add-gpio-command" class="button secondary" type="button">＋ Thêm lệnh GPIO</button><small>Tối đa 8 lệnh; danh sách chân khả dụng tùy model ESP32. Xung ms (0 = Toggle đảo trạng thái). Kích hoạt bằng từ khóa tin nhắn Telegram.</small></div>
+          <label class="check-field span-2"><input id="telegram-enabled" type="checkbox"><span>Bật nhận lệnh Telegram</span></label>
+          <label class="field span-2"><span>Telegram bot token</span><div class="token-check-row"><input id="telegram-token" name="telegramBotToken" type="password" placeholder="Token từ BotFather" autocomplete="off"><button id="telegram-check" class="button secondary" type="button">Kiểm tra token</button></div><small>Token được lưu cục bộ trên host và đồng bộ xuống ESP32. ESP32 polling Telegram nên vẫn nhận, lọc và xếp hàng URL khi Windows tắt.</small></label>
+          <label class="field span-2"><span>Allowed Telegram chat ID</span><div class="token-check-row"><input id="telegram-chat-id" name="telegramAllowedChatId" type="text" inputmode="numeric" placeholder="Dán chat ID dạng số, ví dụ 123456789" spellcheck="false"><button id="telegram-test" class="button secondary" type="button">Gửi tin nhắn thử</button></div><small id="telegram-chat-id-help">Gửi /start trong chat Telegram với bot để bot trả lời chat ID dạng số, rồi nhập số đó vào ô này. Không nhập chữ /start. Có thể nhập nhiều ID, phân cách bằng dấu phẩy.</small></label>
+          <label class="check-field span-2"><input id="clear-telegram-chat-id" type="checkbox"><span>Xóa Allowed Telegram chat ID đã lưu</span></label>
+          <label class="check-field span-2"><input id="clear-telegram-token" type="checkbox"><span>Xóa Telegram token đã lưu</span></label>
+          <div class="form-actions span-2"><button class="button primary" type="submit">Lưu cấu hình local</button><span id="settings-feedback" class="feedback"></span></div>
+          <div id="telegram-feedback" class="feedback span-2" role="status"></div>
+        </form>
+      </section>
+
+      <section class="panel settings-panel" data-page="downloads">
+        <div class="section-heading"><div><p class="eyebrow">DOWNLOAD · WINDOWS WORKER</p><h2>Cài đặt tải xuống</h2></div><span class="section-number">05</span></div>
+        <p class="section-copy">Các giá trị này được lưu trên host và dùng trực tiếp khi chạy yt‑dlp. Số job đồng thời và số fragment mỗi job là hai giới hạn riêng.</p>
+        <form id="download-settings-form" class="settings-grid">
+          <label class="field"><span>Chất lượng video</span><select id="download-quality"><option value="best">Tốt nhất</option><option value="1080p">Tối đa 1080p</option><option value="720p">Tối đa 720p</option><option value="audio">Chỉ âm thanh (MP3)</option></select></label>
+          <label class="field"><span>Ảnh thumbnail</span><select id="thumbnail-format"><option value="off">Không tải thumbnail</option><option value="original">Giữ định dạng gốc</option><option value="jpg">Chuyển sang JPG</option><option value="png">Chuyển sang PNG</option><option value="webp">Chuyển sang WebP</option></select><small>Ảnh trong bài đăng được yt‑dlp lưu ở độ phân giải nguồn.</small></label>
+          <label class="field"><span>Cấu trúc thư mục</span><select id="output-structure"><option value="flat">Tất cả trong thư mục gốc</option><option value="date">Theo ngày tải lên</option><option value="extractor">Theo nền tảng</option><option value="extractor_date">Nền tảng / ngày tải lên</option></select></label>
+          <label class="field"><span>Quy tắc đặt tên file</span><input id="filename-template" type="text" maxlength="180" spellcheck="false"><small>Dùng trường yt‑dlp; phải giữ %(ext)s và không chứa đường dẫn thư mục.</small></label>
+          <label class="field"><span>Định dạng file tải/ghép</span><select id="merge-format"><option value="best">Auto</option><option value="mp4">MP4</option><option value="flv">FLV</option><option value="avi">AVI</option><option value="mkv">MKV</option><option value="ts">TS</option><option value="webm">WebM</option></select><small>Áp dụng cho định dạng đầu ra khi yt‑dlp cần ghép các luồng media.</small></label>
+          <label class="check-field span-2"><input id="allow-image-downloads" type="checkbox"><span>Cho phép tải URL ảnh/photo (ảnh trực tiếp và bài TikTok dạng photo)</span><small>URL ảnh trực tiếp tải bằng PowerShell; bài TikTok photo dùng gallery-dl. Cần cài gallery-dl trên Windows.</small></label>
+          <label class="check-field"><input id="merge-audio-video" type="checkbox"><span>Tự ghép audio và video bằng FFmpeg</span></label>
+          <label class="field"><span>Số job chạy đồng thời</span><input id="max-concurrent-jobs" type="number" min="1" max="4" step="1"><small>Giới hạn số job độc lập chạy cùng lúc.</small></label>
+          <label class="field"><span>Số fragment mỗi job</span><input id="fragment-concurrency" type="number" min="1" max="16" step="1"><small>Giới hạn kết nối phân đoạn trong từng job.</small></label>
+          <label class="field"><span>Giới hạn băng thông</span><input id="bandwidth-limit" type="text" placeholder="Để trống hoặc nhập 2M, 500K" spellcheck="false"></label>
+          <label class="field"><span>Số lần retry</span><input id="retry-limit" type="number" min="0" max="20" step="1"></label>
+          <label class="field"><span>Backoff retry (giây)</span><input id="retry-backoff" type="number" min="1" max="60" step="1"></label>
+          <label class="field"><span>Timeout kết nối (giây)</span><input id="socket-timeout" type="number" min="5" max="600" step="1"></label>
+          <label class="field"><span>Timeout toàn job (phút)</span><input id="job-timeout" type="number" min="0" max="1440" step="1"><small>0 nghĩa là không giới hạn thời lượng job.</small></label>
+          <label class="field"><span>URL trùng trong hàng đợi</span><select id="duplicate-url-policy"><option value="skip_pending">Bỏ qua URL đang chờ/chạy/đã tải</option><option value="allow">Cho phép tải lại</option></select></label>
+          <label class="field"><span>File đã tồn tại</span><select id="existing-file-policy"><option value="skip">Bỏ qua</option><option value="overwrite">Ghi đè</option><option value="rename">Tạo tên mới</option></select></label>
+          <label class="field"><span>Giới hạn dung lượng thư mục tải (GB)</span><input id="max-output-gb" type="number" min="0" max="10000" step="0.5"><small>0 tắt giới hạn. Job mới sẽ chờ nếu vượt mức.</small></label>
+          <label class="field"><span>Dung lượng đĩa trống tối thiểu (GB)</span><input id="minimum-free-gb" type="number" min="0" max="10000" step="0.5"></label>
+          <label class="field"><span>Lịch sử runtime tối đa</span><input id="runtime-history-limit" type="number" min="20" max="1000" step="10"><small>Chỉ dọn job kết thúc; job đang chờ/chạy luôn được giữ.</small></label>
+          <label class="check-field"><input id="verify-output" type="checkbox"><span>Xác minh file đầu ra tồn tại và không rỗng</span></label>
+          <label class="check-field span-2"><input id="adaptive-mode" type="checkbox"><span>Adaptive mode (tự giảm tải khi có lỗi; dùng mức an toàn khi chưa đủ dữ liệu)</span></label>
+          <div class="form-actions span-2"><button class="button primary" type="submit">Lưu cài đặt tải xuống</button><span id="download-settings-feedback" class="feedback" role="status"></span></div>
+        </form>
+      </section>
+
+      <section class="panel account-panel" data-page="security">
+        <div class="section-heading"><div><p class="eyebrow">TÀI KHOẢN</p><h2>Đổi tài khoản truy cập</h2></div><span id="account-current" class="section-number"></span></div>
+        <p class="section-copy">Mặc định lần đầu: <code>admin / admin</code>. Đổi mật khẩu sau khi đăng nhập để bảo vệ dashboard.</p>
+        <form id="account-form" class="settings-grid">
+          <label class="field"><span>Mật khẩu hiện tại</span><input id="account-current-password" type="password" autocomplete="current-password" required></label>
+          <label class="field"><span>Tên đăng nhập mới</span><input id="account-new-username" type="text" maxlength="32" autocomplete="username" required></label>
+          <label class="field"><span>Mật khẩu mới</span><input id="account-new-password" type="password" minlength="8" maxlength="128" autocomplete="new-password"><small>Để trống nếu chỉ đổi tên đăng nhập; mật khẩu mới tối thiểu 8 ký tự.</small></label>
+          <label class="field"><span>Nhập lại mật khẩu mới</span><input id="account-confirm-password" type="password" minlength="8" maxlength="128" autocomplete="new-password"></label>
+          <div class="form-actions span-2"><button class="button primary" type="submit">Lưu tài khoản</button><button id="logout-button" class="button secondary" type="button">Đăng xuất</button><span id="account-feedback" class="feedback" role="status"></span></div>
+        </form>
+      </section>
+
+      <section class="panel account-panel" data-page="security">
+        <div class="section-heading"><div><p class="eyebrow">BACKUP · ESP32 + LOCAL HOST</p><h2>Sao lưu và khôi phục hệ thống</h2></div><span class="section-number">BKP</span></div>
+        <p class="section-copy">Bản sao lưu gồm cấu hình host và ESP32 (Wi‑Fi, tài khoản, token). File không mã hóa, hãy lưu trữ an toàn.</p>
+        <div class="backup-grid">
+          <div class="backup-card">
+            <div class="backup-card-head">
+              <span class="backup-icon">📦</span>
+              <div>
+                <strong>Sao lưu cấu hình</strong>
+                <p>Tải toàn bộ cấu hình máy chủ &amp; ESP32 thành file <code>.espbackup</code>.</p>
+              </div>
+            </div>
+            <form id="system-backup-form" class="backup-card-action">
+              <button class="button primary" type="submit">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px;vertical-align:-2px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Tải file sao lưu
+              </button>
+              <div id="system-backup-feedback" class="feedback" role="status"></div>
+            </form>
+          </div>
+
+          <div class="backup-card">
+            <div class="backup-card-head">
+              <span class="backup-icon">📥</span>
+              <div>
+                <strong>Khôi phục hệ thống</strong>
+                <p>Chọn file <code>.espbackup</code> để phục hồi cấu hình host và ESP32.</p>
+              </div>
+            </div>
+            <form id="system-restore-form" class="backup-card-action">
+              <div class="restore-picker-row">
+                <label class="file-picker-control" for="system-restore-file" title="Bấm để chọn file .espbackup">
+                  <input id="system-restore-file" type="file" accept=".espbackup,application/vnd.esp-download.system-backup+json,application/json" required>
+                  <span class="file-picker-btn">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;vertical-align:-2px"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                    Chọn tệp
+                  </span>
+                  <span class="file-picker-label" id="file-picker-label">Chưa có tệp nào</span>
+                </label>
+                <button class="button secondary" type="submit">
+                  Khôi phục
+                </button>
+              </div>
+              <div id="system-restore-feedback" class="feedback" role="status"></div>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel account-panel" data-page="security">
+        <div class="section-heading"><div><p class="eyebrow">BẢO MẬT</p><h2>Phiên đăng nhập và giới hạn truy cập</h2></div><span class="section-number">SEC</span></div>
+        <form id="security-settings-form" class="settings-grid">
+          <label class="field"><span>Thời hạn phiên (phút)</span><input id="session-timeout" type="number" min="15" max="1440" step="15"></label>
+          <label class="field"><span>Số lần đăng nhập sai tối đa</span><input id="login-max-attempts" type="number" min="3" max="20" step="1"></label>
+          <label class="field"><span>Cửa sổ giới hạn đăng nhập (phút)</span><input id="login-window" type="number" min="1" max="60" step="1"></label>
+          <div class="form-actions span-2"><button class="button primary" type="submit">Lưu bảo mật</button><span id="security-settings-feedback" class="feedback" role="status"></span></div>
+          <p class="section-copy span-2">App Android kết nối qua LAN bằng phiên có hạn; dashboard web trên PC vẫn chỉ nhận truy cập loopback.</p>
+        </form>
+      </section>
+
+      <section class="panel setup-panel" data-page="device">
+        <div class="section-heading"><div><p class="eyebrow">02 · THIẾT BỊ</p><h2>Kết nối Wi‑Fi</h2></div><span class="section-number">02</span></div>
+        <p class="section-copy">Điện thoại kết nối AP <code>espsystem</code> rồi mở <code>http://192.168.4.1/</code> để thiết lập trực tiếp. Tại đây hoặc trên dashboard local, có thể quét Wi‑Fi rồi lưu mạng. Mật khẩu chỉ được gửi tới ESP32.</p>
+        <div id="wifi-current-status" class="wifi-current-status" aria-live="polite">
+          <article><small>WI‑FI</small><strong id="wifi-connection-state">Đang đọc…</strong><span id="wifi-connected-ssid">SSID: —</span></article>
+          <article><small>ĐỊA CHỈ ESP32</small><strong id="wifi-connected-ip">—</strong><span id="wifi-connected-rssi">Tín hiệu: —</span></article>
+          <article><small>SETUP AP</small><strong id="wifi-ap-state">Đang đọc…</strong><span id="wifi-ap-detail">—</span></article>
+        </div>
+        <div class="ap-control"><div><strong id="ap-toggle-state">Đang đọc trạng thái AP…</strong><small id="ap-toggle-detail">AP bật mặc định sau khi flash; tự bật khôi phục nếu Wi‑Fi mất 30 giây.</small></div><label class="switch-control" title="Bật/tắt AP thiết lập"><input id="ap-toggle" type="checkbox" disabled aria-label="Bật hoặc tắt setup AP"><span class="switch-track" aria-hidden="true"></span></label></div>
+        <form id="wifi-form" class="wifi-settings-form">
+          <label class="field"><span>Wi‑Fi SSID</span><input id="wifi-ssid" type="text" maxlength="32" autocomplete="off" required></label>
+          <button id="scan-wifi-button" class="button secondary" type="button">Quét Wi‑Fi</button>
+          <label class="field"><span>Mật khẩu Wi‑Fi</span><input id="wifi-password" type="password" maxlength="64" autocomplete="new-password"></label>
+          <button class="button secondary" type="submit">Lưu Wi‑Fi</button>
+          <div class="wifi-scan-area"><small id="scan-feedback">Chọn mạng bên dưới hoặc nhập SSID.</small><div id="wifi-networks" class="wifi-network-list" aria-live="polite"></div></div>
+        </form>
+        <div id="wifi-feedback" class="feedback"></div>
+
+        <!-- Cấu hình DuckDNS & Hướng dẫn NAT Port -->
+        <div class="ddns-settings-card">
+          <div class="ddns-card-header">
+            <div>
+              <strong class="ddns-card-title">Truy cập từ xa (DuckDNS / Dynamic DNS)</strong>
+              <p class="ddns-card-desc">Tự động đồng bộ IP WAN mạng nhà lên DuckDNS để truy cập từ xa qua tên miền cố định khi ra ngoài.</p>
+            </div>
+            <label class="switch-control" title="Bật/tắt cập nhật DuckDNS">
+              <input id="ddns-toggle" type="checkbox" aria-label="Bật hoặc tắt cập nhật DuckDNS">
+              <span class="switch-track" aria-hidden="true"></span>
+            </label>
+          </div>
+
+          <!-- Khối chỉ dẫn NAT Port Forwarding cho ESP32 chuẩn tone màu -->
+          <div class="ddns-port-guide">
+            <div class="guide-header">
+              <span class="guide-badge">HƯỚNG DẪN NAT PORT CHO ESP32</span>
+              <span class="guide-note">Cấu hình trên modem Wi-Fi (mục Virtual Server / Port Forwarding) để truy cập ESP32 từ 4G hoặc mạng ngoài:</span>
+            </div>
+            <div class="guide-grid">
+              <div class="guide-item">
+                <span class="guide-target">Cách 1: Mở thẳng cổng 80 (Chuẩn Web, không cần gõ port):</span>
+                <code>Port ngoài: <strong>80</strong> ➜ IP ESP32: <strong>192.168.1.5:80</strong> (ALL)</code>
+                <small>Truy cập: <em>http://&lt;domain&gt;.duckdns.org</em> (Nếu 4G vào được bình thường)</small>
+              </div>
+              <div class="guide-item">
+                <span class="guide-target">Cách 2: Cổng ngoài 8080 (Dự phòng nếu mạng 4G chặn port 80):</span>
+                <code>Port ngoài: <strong>8080</strong> ➜ IP ESP32: <strong>192.168.1.5:80</strong> (ALL)</code>
+                <small>Truy cập: <em>http://&lt;domain&gt;.duckdns.org:8080</em> (Dùng nút mở nhanh bên dưới tự gán)</small>
+              </div>
+            </div>
+          </div>
+
+          <form id="ddns-form" class="ddns-form">
+            <div class="ddns-form-row">
+              <label class="ddns-field">
+                <span>Nhà cung cấp tên miền</span>
+                <select id="ddns-provider" class="select-field">
+                  <option value="duckdns">DuckDNS (.duckdns.org)</option>
+                  <option value="noip">No-IP (.ddns.net)</option>
+                  <option value="dyndns">DynDNS (.dyndns.org)</option>
+                  <option value="freedns">FreeDNS (.mooo.com)</option>
+                  <option value="manual">Thủ công / Khác (Nhập đầy đủ tên miền)</option>
+                </select>
+              </label>
+              <label class="ddns-field">
+                <span id="ddns-domain-label">Tên miền con (Subdomain)</span>
+                <input id="ddns-domain" type="text" placeholder="ví dụ: esp32downloaderbot" autocomplete="off">
+              </label>
+            </div>
+            <div class="ddns-form-row ddns-form-row-port">
+              <label class="ddns-field ddns-field-port">
+                <span>Cổng ngoài (External Port)</span>
+                <input id="ddns-port" type="number" min="1" max="65535" value="80" placeholder="80 hoặc 8080">
+              </label>
+              <label class="ddns-field ddns-field-token">
+                <span id="ddns-token-label">DuckDNS Token</span>
+                <input id="ddns-token" type="password" placeholder="Nhập Token bí mật từ duckdns.org" autocomplete="new-password">
+              </label>
+            </div>
+
+            <div class="ddns-preview-box">
+              <span class="preview-badge">LIÊN KẾT TRUY CẬP TỪ XA XEM TRƯỚC</span>
+              <div id="ddns-preview-url" class="preview-url">http://...</div>
+            </div>
+
+            <div class="ddns-btn-row">
+              <button id="open-ddns-browser-btn" class="button primary" type="button">🌐 Mở nhanh Web ESP32 từ xa trên Trình duyệt</button>
+              <button id="save-ddns-button" class="button secondary" type="submit">Lưu cấu hình Dynamic DNS</button>
+            </div>
+          </form>
+          <div class="ddns-footer">
+            <span id="ddns-status-label" class="ddns-status-text">Trạng thái: Chưa cấu hình</span>
+            <div id="ddns-feedback" class="feedback"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel queue-panel" data-page="queue">
+        <div class="section-heading"><div><p class="eyebrow">03 · JOBS</p><h2>Hàng đợi tải</h2></div><span class="section-number">03</span></div>
+        <form id="add-job-form" class="add-job-form">
+          <label class="field grow"><span>URL cần tải ngay</span><input id="job-url" type="url" placeholder="https://…" required></label>
+          <button class="button primary" type="submit">＋ Thêm vào hàng đợi</button>
+        </form>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>NỘI DUNG</th><th>TRẠNG THÁI</th><th>TIẾN TRÌNH</th><th>THAO TÁC</th></tr></thead>
+            <tbody id="jobs-body"><tr><td colspan="4" class="empty-cell">Đang tải hàng đợi…</td></tr></tbody>
+          </table>
+        </div>
+        <div class="queue-footer"><span id="queue-storage">Hàng đợi bền vững trên LittleFS</span><span>Giới hạn hiện tại: 24 job</span></div>
+
+        <div class="section-heading" style="margin-top:28px"><div><p class="eyebrow">LÊN LỊCH ĐỊNH KỲ</p><h2>Kênh & Playlist tự động cập nhật</h2></div></div>
+        <p class="section-copy">Thêm link kênh YouTube, TikTok hoặc playlist để tự động quét và tải video mới theo lịch định kỳ ngay trên Windows.</p>
+        <form id="add-schedule-form" class="wifi-settings-form" style="grid-template-columns: minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) auto;">
+          <label class="field"><span>URL Kênh / Playlist</span><input id="schedule-url" type="url" placeholder="https://www.youtube.com/@channel/videos" required></label>
+          <label class="field"><span>Tần suất</span><select id="schedule-recurrence">
+            <option value="daily">Hàng ngày (Daily)</option>
+            <option value="weekly">Hàng tuần (Weekly)</option>
+            <option value="monthly">Hàng tháng (Monthly)</option>
+          </select></label>
+          <label class="field"><span>Giờ chạy (HH:MM)</span><input id="schedule-time" type="time" value="09:00" required></label>
+          <button class="button primary" type="submit" style="height:41px;">＋ Lên lịch tải</button>
+        </form>
+        <div class="table-wrap" style="margin-top:14px;">
+          <table>
+            <thead><tr><th>KÊNH / URL</th><th>LỊCH CHẠY</th><th>LẦN CHẠY KẾ TIẾP</th><th>TRẠNG THÁI</th><th>THAO TÁC</th></tr></thead>
+            <tbody id="schedules-body"><tr><td colspan="5" class="empty-cell">Chưa có lịch tải định kỳ nào.</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="telegram-log-panel" class="panel queue-panel" data-page="logs">
+        <div class="section-heading"><div><p class="eyebrow">04 · URL HISTORY</p><h2>Lịch sử URL đã xử lý</h2></div><div style="display:flex;align-items:center;gap:12px;"><button id="clear-all-telegram-logs" class="button secondary danger-button" type="button" style="height:32px;font-size:11px;">Xóa sạch lịch sử</button><span class="section-number">04</span></div></div>
+        <p class="section-copy">Danh sách hợp nhất URL từ Telegram, queue ESP32 và Windows worker; trạng thái được lưu, đồng bộ khi hoàn tất/lỗi. Có thể nạp lại hoặc xóa mục lịch sử; xóa mục không xóa file đã tải và không bỏ cờ chống nhận trùng của Telegram.</p>
+        <div id="telegram-log-body" class="telegram-log-list"><div class="empty-cell">Đang tải log từ ESP32…</div></div>
+      </section>
+
+      <section class="panel system-check-panel" data-page="system-check">
+        <div class="section-heading"><div><p class="eyebrow">HỆ THỐNG · MÔI TRƯỜNG THỰC THI</p><h2>Kiểm tra & Cài đặt công cụ</h2></div><span class="section-number">SYS</span></div>
+        <p class="section-copy">Quét kiểm tra sự sẵn sàng của các thành phần tải video và điều khiển trên máy tính Windows. Nhấp "1-Click Cài đặt" để tự động cấu hình các gói thiếu qua PowerShell (WinGet/Pip).</p>
+        <div class="system-check-actions" style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap;">
+          <button id="btn-check-system" class="button secondary" type="button">↻ Kiểm tra lại các gói</button>
+          <button id="btn-install-missing" class="button primary" type="button">⚡ 1-Click Cài đặt gói thiếu</button>
+        </div>
+        <div id="system-tools-grid" class="system-tools-grid">
+          <div class="empty-cell">Đang kiểm tra môi trường hệ thống…</div>
+        </div>
+        <div id="system-install-progress" class="system-install-progress hidden" style="margin-top:20px;">
+          <h3 style="font-size:14px;font-weight:600;margin-bottom:8px;">Tiến trình cài đặt / nhật ký PowerShell</h3>
+          <pre id="system-install-log" class="system-log-viewer" style="background:#1a231e;color:#b2dfdb;padding:14px;border-radius:6px;max-height:260px;overflow:auto;font-size:12px;line-height:1.5;"></pre>
+        </div>
+      </section>
+    </main>
+
+    <footer><span>ESP Download · headless WROOM‑32</span><span>Local only · không dùng cloud hoặc SD card</span></footer>
+  </div>
+  <script type="module" src="/app.js?v=1.3.1"></script>
+</body>
+</html>

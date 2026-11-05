@@ -1,0 +1,16 @@
+.pio/
+node_modules/
+local-host/data/
+local-host/downloads/
+mobile/android/.gradle/
+mobile/android/local.properties
+mobile/android/app/build/
+mobile/android/build/
+backups/
+*.espbackup
+*.log
+*.tmp
+**/.cxx/
+
+
+

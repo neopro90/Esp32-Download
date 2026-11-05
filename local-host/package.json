@@ -1,0 +1,12 @@
+{
+  "name": "esp-download-local-host",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "qrcode": "^1.5.4"
+  }
+}

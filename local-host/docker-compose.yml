@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  esp32-download-host:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: esp32-download-host
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - PORT=8787
+      - ESP_DEVICE_BASE_URL=http://192.168.1.5
+    volumes:
+      - ./data:/app/data
+      - ./downloads:/app/downloads

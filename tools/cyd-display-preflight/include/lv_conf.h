@@ -1,0 +1,43 @@
+#ifndef LV_CONF_H
+#define LV_CONF_H
+
+#define LV_COLOR_DEPTH 16
+#define LV_COLOR_16_SWAP 0
+
+#define LV_MEM_CUSTOM 0
+#define LV_MEM_SIZE (48U * 1024U)
+#define LV_MEM_ADR 0
+
+#define LV_DISP_DEF_REFR_PERIOD 30
+#define LV_INDEV_DEF_READ_PERIOD 20
+#define LV_DPI_DEF 130
+
+#define LV_USE_LOG 0
+#define LV_USE_ASSERT_NULL 1
+#define LV_USE_ASSERT_MALLOC 1
+#define LV_USE_ASSERT_STYLE 0
+#define LV_USE_ASSERT_MEM_INTEGRITY 0
+#define LV_USE_ASSERT_OBJ 0
+
+#define LV_USE_PERF_MONITOR 0
+#define LV_USE_MEM_MONITOR 0
+#define LV_USE_GPU 0
+#define LV_USE_USER_DATA 1
+
+#define LV_USE_THEME_DEFAULT 1
+#if LV_USE_THEME_DEFAULT
+    #define LV_THEME_DEFAULT_DARK 1
+    #define LV_THEME_DEFAULT_GROW 1
+    #define LV_THEME_DEFAULT_TRANSITION_TIME 80
+#endif
+
+#define LV_FONT_MONTSERRAT_14 1
+#define LV_FONT_MONTSERRAT_16 1
+#define LV_FONT_DEFAULT &lv_font_montserrat_14
+
+#define LV_USE_LABEL 1
+#define LV_USE_BTN 1
+#define LV_USE_BAR 1
+#define LV_USE_LINE 1
+
+#endif
