@@ -83,7 +83,7 @@ sequenceDiagram
     User->>TG: Share a TikTok, Facebook, or YouTube URL
     ESP->>TG: Poll updates over HTTPS
     TG-->>ESP: Message and chat ID
-    ESP->>ESP: Validate sender and URL; persist accepted job in LittleFS
+    ESP->>ESP: Validate sender and URL and persist accepted job in LittleFS
     ESP->>PC: Heartbeat every 5 minutes
     PC-->>ESP: Runtime ready
     loop Oldest pending job first
