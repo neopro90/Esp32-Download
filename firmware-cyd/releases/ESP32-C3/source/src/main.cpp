@@ -146,10 +146,10 @@ button.network-option.selected{border-color:#55ae86;background:#253b2e}
       <div class="stat-box"><small>IP LAN</small><strong id="state-ip">—</strong></div>
       <div class="stat-box"><small>TÍN HIỆU RSSI</small><strong id="state-rssi">—</strong></div>
       <div class="stat-box"><small>SETUP AP</small><strong id="state-ap">—</strong></div>
-      <div class="stat-box"><small>WINDOWS RUNTIME</small><strong id="state-runtime">Chờ kết nối</strong></div>
+      <div class="stat-box"><small>RUNTIME SERVICE</small><strong id="state-runtime">Chờ kết nối</strong></div>
       <div class="stat-box"><small>TELEGRAM BOT</small><strong id="state-telegram">—</strong></div>
     </div>
-    <a id="dashboard-link" class="dashboard-link" href="http://192.168.1.2:8787" target="_blank">🖥 Mở Web Dashboard đầy đủ trên PC (:8787)</a>
+    <a id="dashboard-link" class="dashboard-link" href="http://192.168.1.2:8787" target="_blank">🖥 Mở Web Dashboard đầy đủ (:8787)</a>
   </section>
 
   <section class="card">
@@ -196,18 +196,21 @@ button.network-option.selected{border-color:#55ae86;background:#253b2e}
 
   <section class="card">
     <div class="eyebrow">STAGE 1 & 4 · INTEGRATIONS</div>
-    <h2>Telegram & Windows Runtime</h2>
+    <h2>Telegram & Runtime Service</h2>
     <label style="display:flex;align-items:center;gap:9px;cursor:pointer;"><input id="tg-enabled" type="checkbox" checked style="width:18px;height:18px;"> Bật nhận link qua Telegram Bot</label>
     <label for="tg-token">Telegram Bot Token</label>
     <input id="tg-token" type="password" autocomplete="off" placeholder="Để trống để giữ token hiện tại">
     <label style="display:flex;align-items:center;gap:9px;cursor:pointer;font-weight:normal;font-size:11px;color:#8fa195;"><input id="tg-clear" type="checkbox" style="width:16px;height:16px;"> Xóa token Telegram đã lưu</label>
     <label for="tg-chats">Allowed Telegram Chat ID</label>
     <input id="tg-chats" inputmode="numeric" placeholder="Một hoặc nhiều ID số, phân cách bằng dấu phẩy">
-    <label for="runtime-url">Windows Runtime URL (LAN)</label>
-    <input id="runtime-url" type="url" placeholder="http://192.168.1.2:8787">
-    <small>Địa chỉ IP máy tính Windows đang chạy node server.mjs.</small>
+    <label for="runtime-url">Runtime Service URL (LAN)</label>
+    <div class="row">
+      <input id="runtime-url" type="url" placeholder="http://192.168.1.25:8787">
+      <button id="scan-runtime" class="secondary" type="button" style="white-space:nowrap;">Quét tìm</button>
+    </div>
+    <small id="runtime-detail">Địa chỉ IP máy tính/server đang chạy Runtime Service (Node.js, Docker, Linux, Windows...).</small>
     <div style="margin-top:8px;padding:9px 12px;background:#1e2e25;border:1px solid #334d3e;border-radius:6px;font-size:11px;">
-      <strong style="color:#7ee0a9;">⚡ Lệnh cài đặt & kết nối Windows Runtime tự động qua PowerShell:</strong>
+      <strong style="color:#7ee0a9;">⚡ Lệnh cài đặt & kết nối Runtime Service tự động:</strong>
       <div style="margin:6px 0;background:#15201a;padding:6px 8px;border-radius:4px;font-family:monospace;color:#d5ede0;word-break:break-all;" id="runtime-cmd">irm http://192.168.1.5/install-runtime.ps1 | iex</div>
       <button type="button" class="btn" style="padding:4px 10px;font-size:10px;cursor:pointer;" onclick="navigator.clipboard.writeText($('#runtime-cmd').textContent.trim());alert('Đã sao chép lệnh!')">📋 Sao chép lệnh</button>
     </div>
@@ -236,14 +239,17 @@ const translations={
   "Mật khẩu Wi‑Fi":["Wi-Fi password","Wi-Fi 密码"],
   "Để trống nếu mạng mở không mật khẩu":["Leave blank for an open network without a password","开放网络无需密码时请留空"],
   "Lưu & Kết nối Wi‑Fi":["Save & connect Wi-Fi","保存并连接 Wi-Fi"],
-  "Telegram & Windows Runtime":["Telegram & Windows Runtime","Telegram 与 Windows Runtime"],
+  "Telegram & Runtime Service":["Telegram & Runtime Service","Telegram 与 Runtime Service"],
+  "Telegram & Windows Runtime":["Telegram & Runtime Service","Telegram 与 Runtime Service"],
+  "Runtime Service URL (LAN)":["Runtime Service URL (LAN)","Runtime Service URL（局域网）"],
+  "Quét tìm":["Scan","扫描"],
   "Bật nhận link qua Telegram Bot":["Receive links via Telegram bot","通过 Telegram Bot 接收链接"],
   "Để trống để giữ token hiện tại":["Leave blank to keep the current token","留空以保留当前令牌"],
   "Xóa token Telegram đã lưu":["Clear saved Telegram token","清除已保存的 Telegram 令牌"],
   "Allowed Telegram Chat ID":["Allowed Telegram Chat ID","允许的 Telegram Chat ID"],
   "Một hoặc nhiều ID số, phân cách bằng dấu phẩy":["One or more numeric IDs, separated by commas","一个或多个数字 ID，以逗号分隔"],
-  "Windows Runtime URL (LAN)":["Windows Runtime URL (LAN)","Windows Runtime URL（局域网）"],
-  "Địa chỉ IP máy tính Windows đang chạy node server.mjs.":["IP address of the Windows PC running node server.mjs.","运行 node server.mjs 的 Windows 电脑 IP 地址。"],
+  "Windows Runtime URL (LAN)":["Runtime Service URL (LAN)","Runtime Service URL（局域网）"],
+  "Địa chỉ IP máy tính Windows đang chạy node server.mjs.":["IP address of the server running Runtime Service (Node.js/Docker/Linux/Windows).","运行 Runtime Service（Node.js/Docker/Linux/Windows）的服务器 IP 地址。"],
   "Thời hạn lưu Job & Log URL (ngày)":["Job & URL log retention (days)","任务和 URL 日志保留时间（天）"],
   "＋ Thêm lệnh GPIO":["＋ Add GPIO command","＋ 添加 GPIO 命令"],
   "Lưu cấu hình tích hợp":["Save integration settings","保存集成设置"],
@@ -402,9 +408,64 @@ $('#save').onclick=async()=>{
     const d=await r.json();
     if(!r.ok)throw new Error(d.error?.message||'Không lưu được');
     $('#password').value='';
-    $('#feedback').textContent='Đã lưu thành công! ESP32 đang kết nối Wi‑Fi mới…';$('#feedback').className='ok';
-    setTimeout(status,800);
-  }catch(e){$('#feedback').textContent=e.message;$('#feedback').className='bad';}finally{b.disabled=false;}
+    $('#feedback').textContent='Đã gửi Wi-Fi! Đang chờ ESP32 kết nối Gateway router…';$('#feedback').className='ok';
+    let pollCount=0;
+    const pollTimer=setInterval(async()=>{
+      pollCount++;
+      try{
+        const st=await (await fetch('/setup/status',{cache:'no-store'})).json();
+        if(st.wifiConnected&&st.wifiIp&&st.wifiIp!=='0.0.0.0'){
+          clearInterval(pollTimer);
+          b.disabled=false;
+          $('#feedback').innerHTML='🎉 ESP32 đã kết nối Wi‑Fi thành công!<br>Địa chỉ IP mới do Gateway cấp: <strong>http://'+st.wifiIp+'/</strong><div style="margin-top:10px;"><a href="http://'+st.wifiIp+'/" target="_blank" style="display:inline-block;padding:9px 16px;background:#2aa475;color:#fff;border-radius:6px;font-weight:700;text-decoration:none;">🚀 Mở trang cài đặt ESP32 tại http://'+st.wifiIp+'/</a></div><small class="muted" style="display:block;margin-top:6px;">Chuyển thiết bị về Wi-Fi vừa cài rồi bấm vào link trên để tiếp tục.</small>';
+          status();
+          return;
+        }
+      }catch(err){}
+      if(pollCount>=25){
+        clearInterval(pollTimer);
+        b.disabled=false;
+        $('#feedback').textContent='Đã gửi cấu hình Wi-Fi. Hãy chuyển sang Wi-Fi đã kết nối và kiểm tra IP router đã cấp cho ESP32.';
+      }
+    },1500);
+  }catch(e){$('#feedback').textContent=e.message;$('#feedback').className='bad';b.disabled=false;}
+};
+if($('#scan-runtime')) $('#scan-runtime').onclick=async()=>{
+  const b=$('#scan-runtime');b.disabled=true;
+  const detail=$('#runtime-detail');
+  detail.textContent='Đang quét mạng LAN tìm Runtime Service (Port 8787)…';
+  try{
+    const baseHost=window.location.hostname;
+    let candidates=[];
+    if(baseHost&&baseHost.includes('.')){
+      const parts=baseHost.split('.');
+      if(parts.length===4){
+        const prefix=parts[0]+'.'+parts[1]+'.'+parts[2]+'.';
+        for(let i=1;i<255;i++) candidates.push('http://'+prefix+i+':8787');
+      }
+    }
+    if(!candidates.length){
+      for(let i=1;i<255;i++) candidates.push('http://192.168.1.'+i+':8787');
+    }
+    let found=null;
+    const controller=new AbortController();
+    const timeout=setTimeout(()=>controller.abort(),4000);
+    const probes=candidates.map(url=>fetch(url+'/api/mobile/health',{signal:controller.signal,mode:'no-cors'}).then(()=>{
+      if(!found){found=url;controller.abort();}
+    }).catch(()=>{}));
+    await Promise.allSettled(probes);
+    clearTimeout(timeout);
+    if(found){
+      $('#runtime-url').value=found;
+      detail.textContent='✅ Đã tìm thấy Runtime Service: '+found;
+    }else{
+      detail.textContent='Không quét thấy Runtime Service (:8787). Hãy kiểm tra server đã chạy hoặc nhập tay.';
+    }
+  }catch(e){
+    detail.textContent='Hoàn tất quét LAN.';
+  }finally{
+    b.disabled=false;
+  }
 };
 let allowedGpioPins=[21,22];
 function gpioRows(items=[]){

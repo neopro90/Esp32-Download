@@ -40,7 +40,7 @@
         <div class="hero-copy-block">
           <p class="eyebrow">CONTROL PLANE · WINDOWS LOCAL HOST</p>
           <h1>ESP32 Chatbot<br><em>Auto Downloader.</em></h1>
-          <p class="hero-copy">ESP32 là trung tâm điều phối; Gateway nối Wi‑Fi, Telegram và Windows worker. Cấu hình, hàng đợi và trạng thái dùng chung trên thiết bị.</p>
+          <p class="hero-copy">ESP32 là trung tâm điều phối; Gateway nối Wi‑Fi, Telegram và Runtime Service. Cấu hình, hàng đợi và trạng thái dùng chung trên thiết bị.</p>
           <div class="hero-live-state"><i id="pipeline-overall-dot"></i><span id="pipeline-overall-state">Đang đồng bộ trạng thái pipeline…</span></div>
         </div>
         <div class="pipeline-map" role="img" aria-label="Pipeline Telegram, Gateway Wi‑Fi, ESP32, Local host và Android, Windows Runtime, và Storage">
@@ -68,7 +68,7 @@
           <article class="pipeline-node pipeline-node-domain" id="pipeline-domain" data-state="down"><span class="pipeline-node-icon">🌐</span><span class="pipeline-node-copy"><small>WAN · DDNS</small><strong id="pipeline-domain-title">Domain</strong><em id="pipeline-domain-state">Chưa cấu hình</em></span></article>
           <article class="pipeline-node pipeline-node-gateway" id="pipeline-gateway" data-state="down"><span class="pipeline-node-icon">⌁</span><span class="pipeline-node-copy"><small>STAGE 2 · NETWORK</small><strong>Wi‑Fi Gateway</strong><em id="pipeline-gateway-state">Chưa kết nối</em></span></article>
           <article class="pipeline-node pipeline-node-core" id="pipeline-esp32" data-state="down"><span class="pipeline-core-mark">ESP</span><span class="pipeline-node-copy"><small>STAGE 3 · CORE</small><strong>ESP32‑WROOM‑32</strong><em id="pipeline-esp32-state">Đang chờ</em></span></article>
-          <article class="pipeline-node pipeline-node-worker" id="pipeline-worker" data-state="down"><span class="pipeline-node-icon">PC</span><span class="pipeline-node-copy"><small>STAGE 4 · WORKER</small><strong>Windows Runtime</strong><em id="pipeline-worker-state">Chưa có heartbeat</em></span></article>
+          <article class="pipeline-node pipeline-node-worker" id="pipeline-worker" data-state="down"><span class="pipeline-node-icon">SRV</span><span class="pipeline-node-copy"><small>STAGE 4 · WORKER</small><strong>Runtime Service</strong><em id="pipeline-worker-state">Chưa có heartbeat</em></span></article>
           <article class="pipeline-node pipeline-node-telegram" id="pipeline-telegram" data-state="down"><span class="pipeline-node-icon">✈</span><span class="pipeline-node-copy"><small>STAGE 1 · TRIGGER</small><strong>Telegram API</strong><em id="pipeline-telegram-state">Chưa cấu hình</em></span></article>
           <article class="pipeline-node pipeline-node-storage" id="pipeline-storage" data-state="down"><span class="pipeline-node-icon">▰</span><span class="pipeline-node-copy"><small>STAGE 5 · OUTPUT</small><strong>Storage · Windows</strong><em id="pipeline-storage-state">Chưa kiểm tra thư mục</em></span></article>
         </div>
@@ -105,8 +105,8 @@
         <div class="section-heading"><div><p class="eyebrow">01 · KẾT NỐI</p><h2>Thiết lập local host</h2></div><span class="section-number">01</span></div>
         <form id="settings-form" class="settings-grid">
           <label class="field span-2"><span>ESP32 API URL</span><input id="device-url" name="deviceBaseUrl" type="url" placeholder="http://192.168.4.1" autocomplete="url" required><small>Khi ở AP provisioning dùng http://192.168.4.1; sau khi nối Wi‑Fi, nhập IP LAN hoặc espdownload.local.</small></label>
-          <label class="field span-2"><span>Windows runtime URL (LAN)</span><input id="runtime-url" name="runtimeBaseUrl" type="url" placeholder="http://192.168.1.25:8787" autocomplete="url"><small>Địa chỉ LAN của PC. ESP32 ping URL này mỗi 5 phút; khi phản hồi, gửi lần lượt các job pending đã lưu trên ESP32.</small></label>
-          <label class="field span-2"><span>Tên Windows worker</span><input id="worker-name" name="workerName" type="text" maxlength="48" spellcheck="false"><small>Định danh worker hiển thị trong trạng thái job và heartbeat.</small></label>
+          <label class="field span-2"><span>Runtime Service URL (LAN)</span><input id="runtime-url" name="runtimeBaseUrl" type="url" placeholder="http://192.168.1.25:8787" autocomplete="url"><small>Địa chỉ LAN của Runtime Service (Windows / Linux / Docker). ESP32 ping URL này mỗi 5 phút; khi phản hồi, gửi lần lượt các job pending đã lưu trên ESP32.</small></label>
+          <label class="field span-2"><span>Tên Runtime Service worker</span><input id="worker-name" name="workerName" type="text" maxlength="48" spellcheck="false"><small>Định danh worker hiển thị trong trạng thái job và heartbeat.</small></label>
           <label class="field span-2"><span>Device API token</span><input id="device-token" name="deviceToken" type="password" placeholder="Dán token từ Serial Monitor (để trống nếu đã lưu)" autocomplete="off"><small>Token được lưu cục bộ trên máy này và không hiển thị lại sau khi lưu.</small></label>
           <div class="field span-2 pairing-card"><span>Ghép nối app Android bằng QR</span><div class="pairing-actions"><button id="device-pairing-show" class="button secondary" type="button">Tạo mã QR</button><a id="device-pairing-download" class="button secondary hidden" download="esp-download-device-api.png">Tải QR PNG</a><a class="button secondary" href="/esp-download.apk" download="esp-download.apk">Tải app Android (.APK)</a></div><img id="device-pairing-image" class="pairing-image hidden" alt="QR ghép nối device API ESP32"><small>Cài file APK trên điện thoại Android, sau đó quét mã QR để tự động đồng bộ kết nối với ESP32 và Windows Host.</small><span id="device-pairing-feedback" class="feedback" role="status"></span></div>
           <label class="field"><span>Đường dẫn yt-dlp</span><input id="yt-dlp-path" name="ytDlpPath" type="text" placeholder="yt-dlp hoặc đường dẫn đầy đủ" spellcheck="false"></label>
@@ -126,7 +126,7 @@
       </section>
 
       <section class="panel settings-panel" data-page="downloads">
-        <div class="section-heading"><div><p class="eyebrow">DOWNLOAD · WINDOWS WORKER</p><h2>Cài đặt tải xuống</h2></div><span class="section-number">05</span></div>
+        <div class="section-heading"><div><p class="eyebrow">DOWNLOAD · RUNTIME SERVICE</p><h2>Cài đặt tải xuống</h2></div><span class="section-number">05</span></div>
         <p class="section-copy">Các giá trị này được lưu trên host và dùng trực tiếp khi chạy yt‑dlp. Số job đồng thời và số fragment mỗi job là hai giới hạn riêng.</p>
         <form id="download-settings-form" class="settings-grid">
           <label class="field"><span>Chất lượng video</span><select id="download-quality"><option value="best">Tốt nhất</option><option value="1080p">Tối đa 1080p</option><option value="720p">Tối đa 720p</option><option value="audio">Chỉ âm thanh (MP3)</option></select></label>

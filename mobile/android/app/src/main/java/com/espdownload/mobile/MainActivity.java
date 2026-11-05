@@ -1014,26 +1014,15 @@ public class MainActivity extends Activity {
         label(card, "✅ Đã xác thực kết nối AP thành công!", 15, GREEN, true);
         label(card, "ESP32 AP: " + ssid + " · IP: 192.168.4.1\n" + tr("Trạng thái: Sẵn sàng cấu hình"), 12, INK, false);
 
-        Button openSettingBtn = button("⚙️ Mở giao diện cài đặt (192.168.4.1)", true);
+        Button openSettingBtn = button("⚙️ Truy cập http://192.168.4.1 để cài đặt", true);
         openSettingBtn.setTextSize(14);
-        openSettingBtn.setPadding(0, dp(12), 0, dp(12));
+        openSettingBtn.setPadding(0, dp(14), 0, dp(14));
         card.addView(openSettingBtn, full());
         openSettingBtn.setOnClickListener(v -> {
             if (!directSetup) {
                 showDirectSetup();
             } else {
                 refreshDirectSetup();
-            }
-        });
-
-        Button openBrowserBtn = button("🌐 Mở trên trình duyệt web (192.168.4.1)", false);
-        card.addView(openBrowserBtn, full());
-        openBrowserBtn.setOnClickListener(v -> {
-            try {
-                Intent browserIntent = new Intent(Intent.ACTION_VIEW, Uri.parse("http://192.168.4.1/"));
-                startActivity(browserIntent);
-            } catch (Exception ex) {
-                toast("Không thể mở trình duyệt: " + ex.getMessage());
             }
         });
     }
@@ -1080,7 +1069,7 @@ public class MainActivity extends Activity {
         appearance.addView(languageButton(), new LinearLayout.LayoutParams(0, dp(42), 1));
         Button back=button("← Quay lại đăng nhập",false); root.addView(back,full()); back.setOnClickListener(v->showLogin());
         label(root,"Thiết lập Wi‑Fi ESP32",24,INK,true);
-        label(root,"Kết nối điện thoại vào AP espsystem (mật khẩu espsystem). Trang này giao tiếp trực tiếp với 192.168.4.1, không cần Windows host.",13,MUTED,false);
+        label(root,"Kết nối điện thoại vào AP espsystem (mật khẩu espsystem). Trang này giao tiếp trực tiếp với 192.168.4.1 để cấu hình Wi-Fi cho ESP32.",13,MUTED,false);
 
         LinearLayout apScanCard = cardStart(root);
         label(apScanCard, "Tìm & Kết nối AP ESP32", 15, INK, true);
@@ -1100,8 +1089,113 @@ public class MainActivity extends Activity {
         LinearLayout networks=column(root);networks.setTag("wifi-networks");
         label(root,"Wi‑Fi SSID",12,MUTED,true);EditText ssid=input("wifi-ssid","Wi‑Fi SSID","","Chọn mạng hoặc nhập SSID",InputType.TYPE_CLASS_TEXT,false);root.addView(ssid,full());
         label(root,"Mật khẩu Wi‑Fi",12,MUTED,true);EditText pass=input("wifi-pass","Mật khẩu Wi‑Fi","","Để trống nếu mạng mở",InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD,false);root.addView(pass,full());
-        Button save=button("Lưu Wi‑Fi vào ESP32",true);root.addView(save,full());save.setOnClickListener(v->{JSONObject p=new JSONObject();try{p.put("ssid",value("wifi-ssid"));p.put("password",value("wifi-pass"));}catch(Exception ignored){}runIo(()->request("http://192.168.4.1","/setup/network","POST",p,""),r->{setValue("wifi-pass","");toast(r.optString("message","Đã lưu Wi‑Fi; ESP32 đang kết nối."));},e->toast(e.getMessage()));});
+        
+        Button save = button("Lưu Wi‑Fi vào ESP32", true); root.addView(save, full());
+        TextView wifiSaveFeedback = label(root, "", 12, MUTED, false);
+        wifiSaveFeedback.setTag("wifi-save-feedback");
+        LinearLayout gatewayResultBox = column(root);
+        gatewayResultBox.setTag("gateway-result-box");
+
+        save.setOnClickListener(v -> {
+            final String chosenSsid = value("wifi-ssid");
+            final String chosenPass = value("wifi-pass");
+            if (chosenSsid.isEmpty()) {
+                toast(tr("Vui lòng chọn hoặc nhập Wi-Fi SSID."));
+                return;
+            }
+            save.setEnabled(false);
+            wifiSaveFeedback.setText(tr("Đang gửi thông tin Wi-Fi tới ESP32…"));
+            wifiSaveFeedback.setTextColor(INK);
+
+            JSONObject p = new JSONObject();
+            try {
+                p.put("ssid", chosenSsid);
+                p.put("password", chosenPass);
+            } catch (Exception ignored) {}
+
+            runIo(() -> request("http://192.168.4.1", "/setup/network", "POST", p, ""), r -> {
+                setValue("wifi-pass", "");
+                wifiSaveFeedback.setText(tr("Đã gửi Wi-Fi! Đang đợi ESP32 kết nối vào Gateway và nhận IP mới…"));
+                wifiSaveFeedback.setTextColor(INK);
+                pollEsp32GatewayIp(save, wifiSaveFeedback, gatewayResultBox, chosenSsid, 1);
+            }, e -> {
+                save.setEnabled(true);
+                wifiSaveFeedback.setText(tr("Lỗi gửi Wi-Fi: ") + e.getMessage());
+                wifiSaveFeedback.setTextColor(Color.rgb(190, 40, 40));
+            });
+        });
         refreshDirectSetup();
+    }
+
+    private void pollEsp32GatewayIp(Button saveBtn, TextView feedback, LinearLayout resultContainer, String targetSsid, int attempt) {
+        if (!directSetup) return;
+        if (attempt > 20) {
+            saveBtn.setEnabled(true);
+            feedback.setText(tr("Chưa nhận được phản hồi IP từ ESP32 sau 30s. Thử kiểm tra lại mật khẩu Wi-Fi hoặc quét tìm thiết bị trong mạng LAN."));
+            feedback.setTextColor(Color.rgb(190, 40, 40));
+            return;
+        }
+
+        feedback.setText(tr("Đang đợi ESP32 nhận IP từ Gateway router (lần thử ") + attempt + "/20)…");
+        feedback.setTextColor(INK);
+
+        main.postDelayed(() -> {
+            if (!directSetup) return;
+            runIo(() -> {
+                try {
+                    return request("http://192.168.4.1", "/setup/status", "GET", null, "");
+                } catch (Exception e) {
+                    return null;
+                }
+            }, status -> {
+                if (!directSetup) return;
+                if (status != null && status.optBoolean("wifiConnected") && !status.optString("wifiIp").isEmpty() && !"0.0.0.0".equals(status.optString("wifiIp"))) {
+                    final String newIp = status.optString("wifiIp");
+                    displayGatewaySuccessAndHandover(resultContainer, feedback, status.optString("wifiSsid", targetSsid), newIp);
+                } else {
+                    pollEsp32GatewayIp(saveBtn, feedback, resultContainer, targetSsid, attempt + 1);
+                }
+            }, error -> {
+                if (!directSetup) return;
+                pollEsp32GatewayIp(saveBtn, feedback, resultContainer, targetSsid, attempt + 1);
+            });
+        }, 1500);
+    }
+
+    private void displayGatewaySuccessAndHandover(LinearLayout container, TextView feedback, String ssid, String newIp) {
+        feedback.setText(tr("✅ ESP32 đã kết nối thành công vào Wi-Fi Gateway!"));
+        feedback.setTextColor(GREEN);
+
+        container.removeAllViews();
+        LinearLayout card = cardStart(container);
+        label(card, "🎉 ESP32 đã kết nối vào Gateway!", 16, GREEN, true);
+        label(card, tr("Wi-Fi: ") + ssid + "\n" + tr("Địa chỉ IP do Gateway cấp: http://") + newIp, 13, INK, false);
+
+        Button goToEsp32Btn = button("🚀 Chuyển sang cấu hình ESP32 (http://" + newIp + ")", true);
+        goToEsp32Btn.setTextSize(14);
+        goToEsp32Btn.setPadding(0, dp(14), 0, dp(14));
+        card.addView(goToEsp32Btn, full());
+
+        goToEsp32Btn.setOnClickListener(v -> {
+            try {
+                ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+                if (cm != null) {
+                    cm.bindProcessToNetwork(null);
+                    if (activeNetworkCallback != null) {
+                        try { cm.unregisterNetworkCallback(activeNetworkCallback); } catch (Exception ignored) {}
+                        activeNetworkCallback = null;
+                    }
+                }
+            } catch (Exception ignored) {}
+
+            final String newHost = "http://" + newIp;
+            host = newHost;
+            prefs.edit().putString("host", host).apply();
+            directSetup = false;
+            toast(tr("Đã chuyển kết nối sang ESP32 tại ") + newHost);
+            showMain();
+            openPage("settings");
+        });
     }
 
     private void refreshDirectSetup() {
@@ -2952,11 +3046,17 @@ public class MainActivity extends Activity {
         heading("Thiết lập local host", "Đồng bộ cấu hình chung với dashboard web trên PC.");
         section("Kết nối thiết bị và worker");
         addField("deviceBaseUrl", "ESP32 API URL", config.optString("deviceBaseUrl", "http://192.168.4.1"), "http://192.168.4.1", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI, false);
-        addField("runtimeBaseUrl", "Windows runtime URL (LAN)", config.optString("runtimeBaseUrl", ""), "http://192.168.1.25:8787", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI, false);
-        addField("workerName", "Tên Windows worker", config.optString("workerName", "windows-runtime"), "windows-runtime", InputType.TYPE_CLASS_TEXT, false);
+        addField("runtimeBaseUrl", "Runtime Service URL (LAN)", config.optString("runtimeBaseUrl", ""), "http://192.168.1.25:8787", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI, false);
+        
+        Button scanRuntimeBtn = button("🔍 Quét tìm Runtime Service trong LAN", false);
+        body.addView(scanRuntimeBtn, full());
+        TextView runtimeScanFeedback = label(body, "", 12, MUTED, false);
+        scanRuntimeBtn.setOnClickListener(v -> scanAndLinkRuntimeService(scanRuntimeBtn, runtimeScanFeedback));
+
+        addField("workerName", "Tên Runtime Service", config.optString("workerName", "runtime-service"), "runtime-service", InputType.TYPE_CLASS_TEXT, false);
         addField("deviceToken", "Device API token", "", config.optBoolean("deviceTokenConfigured") ? "Đã lưu ****..." + config.optString("deviceTokenLast4", "????") : "Dán token từ Serial Monitor", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD, false);
         addPairingActions(body);
-        section("Windows downloader và nơi lưu file");
+        section("Downloader và nơi lưu file");
         addField("ytDlpPath", "Đường dẫn yt-dlp", config.optString("ytDlpPath", "yt-dlp"), "yt-dlp", InputType.TYPE_CLASS_TEXT, false);
         addField("ffmpegPath", "Đường dẫn FFmpeg", config.optString("ffmpegPath", ""), "Tự tìm trên PATH", InputType.TYPE_CLASS_TEXT, false);
         addField("denoPath", "Đường dẫn Deno", config.optString("denoPath", ""), "Tùy chọn", InputType.TYPE_CLASS_TEXT, false);
@@ -3990,11 +4090,100 @@ public class MainActivity extends Activity {
             c.setConnectTimeout(350); c.setReadTimeout(500); c.setRequestMethod("GET");
             int code = c.getResponseCode(); c.disconnect();
             if (code == 200) {
-                return new DiscoveredHost("http://" + ipAddress + ":8787", "PC Windows Host tại " + ipAddress + ":8787", false);
+                return new DiscoveredHost("http://" + ipAddress + ":8787", "Runtime Service tại " + ipAddress + ":8787", false);
             }
         } catch (Exception ignored) {}
 
         return null;
+    }
+
+    private void scanAndLinkRuntimeService(Button button, TextView feedback) {
+        button.setEnabled(false);
+        feedback.setText(tr("Đang quét mạng LAN tìm Runtime Service (Port 8787)…"));
+        feedback.setTextColor(INK);
+
+        ExecutorService scan = Executors.newFixedThreadPool(28);
+        List<String> ipCandidates = new ArrayList<>();
+        try {
+            WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            android.net.DhcpInfo dhcp = wm == null ? null : wm.getDhcpInfo();
+            int ip = dhcp == null ? 0 : dhcp.ipAddress, mask = dhcp == null ? 0 : dhcp.netmask;
+            if (ip != 0) {
+                if (mask == 0) mask = 0x00ffffff;
+                int network = ip & mask, broadcast = network | ~mask;
+                int first = Math.max(network + 1, ip - 128), last = Math.min(broadcast - 1, ip + 128);
+                for (int address = first; address <= last && ipCandidates.size() < 512; address++) {
+                    if (address != ip) ipCandidates.add(ipv4(address));
+                }
+            }
+        } catch (Exception ignored) {}
+        if (ipCandidates.isEmpty()) {
+            try {
+                Enumeration<NetworkInterface> nets = NetworkInterface.getNetworkInterfaces();
+                while (nets.hasMoreElements()) for (InetAddress address : Collections.list(nets.nextElement().getInetAddresses())) if (address instanceof Inet4Address && !address.isLoopbackAddress()) {
+                    byte[] b = address.getAddress(); String prefix = (b[0] & 255) + "." + (b[1] & 255) + "." + (b[2] & 255) + ".";
+                    for (int i = 1; i < 255; i++) ipCandidates.add(prefix + i);
+                }
+            } catch (Exception ignored) {}
+        }
+
+        List<Future<String>> futures = new ArrayList<>();
+        for (String candidateIp : ipCandidates) {
+            futures.add(scan.submit(() -> {
+                try {
+                    URL url = new URL("http://" + candidateIp + ":8787/api/mobile/health");
+                    HttpURLConnection c = (HttpURLConnection) url.openConnection();
+                    c.setConnectTimeout(350); c.setReadTimeout(500); c.setRequestMethod("GET");
+                    int code = c.getResponseCode(); c.disconnect();
+                    if (code == 200) {
+                        return "http://" + candidateIp + ":8787";
+                    }
+                } catch (Exception ignored) {}
+                return null;
+            }));
+        }
+        scan.shutdown();
+
+        new Thread(() -> {
+            List<String> foundList = new ArrayList<>();
+            for (Future<String> future : futures) {
+                try {
+                    String value = future.get(12, TimeUnit.SECONDS);
+                    if (value != null && !foundList.contains(value)) foundList.add(value);
+                } catch (Exception ignored) {}
+            }
+            scan.shutdownNow();
+            main.post(() -> {
+                button.setEnabled(true);
+                if (foundList.isEmpty()) {
+                    feedback.setText(tr("Không tìm thấy Runtime Service trên cổng 8787. Hãy kiểm tra máy chủ đã khởi động `node server.mjs` chưa."));
+                    feedback.setTextColor(Color.rgb(190, 40, 40));
+                } else if (foundList.size() == 1) {
+                    String foundUrl = foundList.get(0);
+                    setValue("runtimeBaseUrl", foundUrl);
+                    setValue("workerName", "runtime-service");
+                    settingsDirty = true;
+                    feedback.setText(tr("✅ Đã tìm thấy & liên kết Runtime Service: ") + foundUrl);
+                    feedback.setTextColor(GREEN);
+                    toast(tr("Đã liên kết: ") + foundUrl);
+                } else {
+                    String[] items = foundList.toArray(new String[0]);
+                    new android.app.AlertDialog.Builder(this)
+                        .setTitle(tr("Chọn Runtime Service tìm thấy trong LAN"))
+                        .setItems(items, (dialog, which) -> {
+                            String chosen = items[which];
+                            setValue("runtimeBaseUrl", chosen);
+                            setValue("workerName", "runtime-service");
+                            settingsDirty = true;
+                            feedback.setText(tr("✅ Đã liên kết: ") + chosen);
+                            feedback.setTextColor(GREEN);
+                            toast(tr("Đã liên kết: ") + chosen);
+                        })
+                        .setNegativeButton(tr("Hủy"), null)
+                        .show();
+                }
+            });
+        }).start();
     }
 
     private String ipv4(int value) { return (value & 255) + "." + ((value >> 8) & 255) + "." + ((value >> 16) & 255) + "." + ((value >> 24) & 255); }
@@ -4190,7 +4379,10 @@ public class MainActivity extends Activity {
             {"Thiết lập local host", "Local host settings", "本地主机设置"},
             {"Đồng bộ cấu hình chung với dashboard web trên PC.", "Sync shared settings with the PC web dashboard.", "与 PC 网页仪表板同步通用配置。"},
             {"Kết nối thiết bị và worker", "Device and worker connection", "设备与工作进程连接"},
-            {"Windows downloader và nơi lưu file", "Windows downloader and file storage", "Windows 下载器和文件存储"},
+            {"Runtime Service URL (LAN)", "Runtime Service URL (LAN)", "Runtime Service URL（局域网）"},
+            {"🔍 Quét tìm Runtime Service trong LAN", "🔍 Scan for Runtime Service in LAN", "🔍 在局域网中扫描 Runtime Service"},
+            {"Downloader và nơi lưu file", "Downloader and file storage", "下载器和文件存储"},
+            {"Windows downloader và nơi lưu file", "Downloader and file storage", "下载器和文件存储"},
             {"Telegram nhận URL và lệnh GPIO", "Telegram URL and GPIO commands", "Telegram URL 和 GPIO 命令"},
             {"Cài đặt tải xuống", "Download settings", "下载设置"},
             {"Các tùy chọn này được lưu trên host và áp dụng trực tiếp cho các job yt‑dlp mới.", "These options are saved on the host and applied to new yt-dlp jobs.", "这些选项保存在主机上，并直接应用于新的 yt-dlp 任务。"},
@@ -4263,7 +4455,8 @@ public class MainActivity extends Activity {
             {"Đang quét mạng Wi‑Fi hiện tại để tìm local host…", "Scanning the current Wi-Fi network for the local host…", "正在当前 Wi-Fi 网络中搜索本地主机…"},
             {"Tìm thấy host:", "Host found:", "已找到主机："},
             {"Tìm host", "Find host", "查找主机"},
-            {"Tên Windows worker", "Windows worker name", "Windows 工作进程名称"},
+            {"Tên Runtime Service", "Runtime Service name", "Runtime Service 名称"},
+            {"Tên Windows worker", "Runtime Service name", "Runtime Service 名称"},
             {"Đường dẫn yt-dlp", "yt-dlp path", "yt-dlp 路径"},
             {"Đường dẫn FFmpeg", "FFmpeg path", "FFmpeg 路径"},
             {"Đường dẫn Deno", "Deno path", "Deno 路径"},
