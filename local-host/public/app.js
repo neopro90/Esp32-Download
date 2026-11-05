@@ -469,12 +469,17 @@ function renderPipeline(status) {
   $("#pipeline-esp32-state").textContent = deviceUp
     ? `Điều phối · ${device.storageReady ? "LittleFS sẵn sàng" : "kiểm tra LittleFS"}`
     : (device.error || "ESP32 chưa kết nối");
-  const activeRoutes = [apiUp, gatewayUp, workerUp, telegramUp, storageUp, gatewayWorkerUp, deviceApiGatewayUp, domainUp].filter(Boolean).length;
+  const activeModules = [apiUp, domainUp, gatewayUp, deviceUp, workerUp, telegramUp, outputWritable].filter(Boolean).length;
   const overall = $(".hero-live-state");
-  if (overall) overall.dataset.state = apiUp && gatewayUp ? "up" : "down";
-  $("#pipeline-overall-state").textContent = deviceUp
-    ? `${activeRoutes}/8 tuyến hoạt động · cập nhật trực tiếp`
-    : "Chờ kết nối tới ESP32";
+  if (overall) {
+    overall.dataset.state = activeModules === 7 ? "up" : (activeModules >= 4 ? "warn" : "down");
+  }
+  const overallState = $("#pipeline-overall-state");
+  if (overallState) {
+    overallState.textContent = deviceUp
+      ? `${activeModules}/7 module trực tuyến · cập nhật trực tiếp`
+      : "Chờ kết nối tới ESP32";
+  }
   updatePipelineGeometry();
 }
 

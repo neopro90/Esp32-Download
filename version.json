@@ -1,7 +1,7 @@
 {
-  "version": "1.3.1.4",
-  "versionCode": 7,
-  "firmwareVersion": "1.3.1.4",
+  "version": "1.3.1.5",
+  "versionCode": 8,
+  "firmwareVersion": "1.3.1.5",
   "apkUrl": "https://raw.githubusercontent.com/neopro90/Esp32-Download/main/esp-download.apk",
-  "releaseNotes": "1. Sửa lỗi khôi phục sao lưu (Restore Backup) khi file sao lưu có apEnabled=false hoặc Wi-Fi rỗng: tự động bảo vệ AP luôn kích hoạt tránh mất kết nối\n2. Hỗ trợ đầy đủ Shared Settings cấu hình phẳng và cấu trúc lồng nhau (securitySettings, downloadSettings)\n3. Chuẩn hóa restore backup trên ESP32 AP 192.168.4.1, Android App và Local Host"
+  "releaseNotes": "1. Sửa lỗi hiển thị tỷ lệ trực tuyến Dashboard Pipeline: Đồng bộ chuẩn xác 7/7 module (thay vì 8/8) trên cả Runtime Web và Android APK\n2. Hoàn thiện nhận diện cờ trạng thái chi tiết và cơ chế đổi màu trực quan (Xanh lá: online, Vàng cam: cảnh báo/bán phần, Đỏ: offline)\n3. Chuẩn hóa tên gọi Runtime Service trên APK đồng bộ hoàn toàn với Local Host"
 }

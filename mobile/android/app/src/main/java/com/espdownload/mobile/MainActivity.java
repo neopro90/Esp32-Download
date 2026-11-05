@@ -2460,7 +2460,7 @@ public class MainActivity extends Activity {
         title.setPadding(0, 0, 0, 0);
         TextView subtitle = label(hero, "ESP32 là trung tâm điều phối; Gateway nối Wi-Fi, Telegram và Windows worker.", 9, darkTheme ? Color.rgb(210, 218, 213) : Color.rgb(55, 65, 81), false);
         subtitle.setPadding(0, 0, 0, 0);
-        TextView live = label(hero, "●  8/8 tuyến hoạt động · cập nhật trực tiếp", 8, Color.rgb(16, 185, 129), true);
+        TextView live = label(hero, "●  7/7 module trực tuyến · cập nhật trực tiếp", 8, Color.rgb(16, 185, 129), true);
         live.setPadding(0, 0, 0, 0);
         live.setTag("dashboard-live-status");
         PipelineFlowView pipeline = new PipelineFlowView(this);
@@ -2468,9 +2468,9 @@ public class MainActivity extends Activity {
         pipeline.addStage(createPipelineGridStage("pipeline-telegram", "Telegram API"));
         pipeline.addStage(createPipelineGridStage("pipeline-domain", "Domain"));
         pipeline.addStage(createPipelineGridStage("pipeline-gateway", "Wi-Fi Gateway", true));
-        pipeline.addStage(createPipelineGridStage("pipeline-worker", "Windows PC"));
+        pipeline.addStage(createPipelineGridStage("pipeline-worker", "Runtime Service"));
         pipeline.addStage(createPipelineGridStage("pipeline-host", "Local host"));
-        pipeline.addStage(createPipelineGridStage("pipeline-device", "Esp32"));
+        pipeline.addStage(createPipelineGridStage("pipeline-device", "Esp32", true));
         pipeline.addStage(createPipelineGridStage("pipeline-storage", "Storage"));
         LinearLayout.LayoutParams pipelineParams = full();
         pipelineParams.leftMargin = dp(5);
@@ -2693,13 +2693,13 @@ public class MainActivity extends Activity {
             if (node == null) return;
             if (online) offlineNodes.remove(nodeTag);
             else offlineNodes.add(nodeTag);
-            int fill = online ? Color.rgb(35, 43, 40) : Color.rgb(254, 226, 226);
-            int stroke = online ? Color.rgb(74, 111, 94) : Color.rgb(248, 113, 113);
-            int text = online ? Color.WHITE : Color.rgb(153, 27, 27);
-            if ("pipeline-gateway".equals(nodeTag) && online) {
-                fill = GREEN;
-                stroke = Color.rgb(100, 196, 155);
-            }
+            boolean isCore = "pipeline-gateway".equals(nodeTag) || "pipeline-device".equals(nodeTag);
+            int fill = online ? (isCore ? GREEN : (darkTheme ? Color.rgb(30, 48, 38) : Color.rgb(235, 247, 240)))
+                              : (darkTheme ? Color.rgb(55, 30, 30) : Color.rgb(254, 226, 226));
+            int stroke = online ? (isCore ? Color.rgb(100, 196, 155) : (darkTheme ? Color.rgb(60, 105, 80) : Color.rgb(130, 205, 168)))
+                                : (darkTheme ? Color.rgb(160, 60, 60) : Color.rgb(248, 113, 113));
+            int text = online ? (isCore ? Color.WHITE : (darkTheme ? Color.WHITE : Color.rgb(20, 80, 50)))
+                              : (darkTheme ? Color.rgb(255, 170, 170) : Color.rgb(153, 27, 27));
             node.setBackground(haSurface(fill, 6, stroke));
             if (node instanceof ViewGroup && ((ViewGroup) node).getChildAt(0) instanceof TextView) {
                 ((TextView) ((ViewGroup) node).getChildAt(0)).setTextColor(text);
@@ -2986,24 +2986,50 @@ public class MainActivity extends Activity {
         PipelineFlowView pipeline = body.findViewWithTag("dashboard-pipeline") instanceof PipelineFlowView
             ? (PipelineFlowView) body.findViewWithTag("dashboard-pipeline") : null;
         if (pipeline != null) {
-            pipeline.setNodeOnline("pipeline-telegram", tg.optBoolean("configured") && tg.optBoolean("tokenValid"));
-            pipeline.setNodeOnline("pipeline-gateway", deviceConnected && d.optBoolean("wifiConnected"));
-            pipeline.setNodeOnline("pipeline-worker", !dl.optString("version").isEmpty());
-            pipeline.setNodeOnline("pipeline-host", data.optBoolean("authenticated", true));
-            pipeline.setNodeOnline("pipeline-device", deviceConnected);
-            pipeline.setNodeOnline("pipeline-storage", out.optBoolean("writable"));
+            boolean tgConfigured = tg.optBoolean("configured") || d.optBoolean("telegramConfigured");
+            boolean tgEnabled = d.optBoolean("telegramEnabled", true);
+            boolean tgTokenValid = tg.optBoolean("tokenValid") || (d.optBoolean("telegramConfigured") && !tg.has("tokenValid"));
+            boolean tgPollingOk = !"ERROR".equalsIgnoreCase(d.optString("telegramPollState"))
+                && !"ERROR".equalsIgnoreCase(tg.optString("pollingState"));
+            boolean tgOnline = tgConfigured && tgEnabled && tgTokenValid && tgPollingOk && deviceConnected && d.optBoolean("wifiConnected");
+
+            boolean gwOnline = deviceConnected && (d.optBoolean("wifiConnected") || d.optBoolean("provisioningApActive"));
+            boolean workerOnline = deviceConnected && (d.optBoolean("runtimeOnline") || !dl.optString("version").isEmpty());
+            boolean hostOnline = data.optBoolean("authenticated", true);
+            boolean espOnline = deviceConnected;
+            boolean storageOnline = out.optBoolean("writable");
+
             String ddnsDomain = d.optString("ddnsDomain", "");
             if (ddnsDomain.isEmpty() && config != null) ddnsDomain = config.optString("ddnsDomain", "");
             if (ddnsDomain.isEmpty() && prefs != null) ddnsDomain = prefs.getString("ddns_domain_raw", "");
-            boolean ddnsOnline = !ddnsDomain.trim().isEmpty() && deviceConnected && d.optBoolean("ddnsEnabled", true);
+            boolean ddnsConfigured = !ddnsDomain.trim().isEmpty();
+            boolean ddnsOnline = ddnsConfigured && deviceConnected && d.optBoolean("ddnsEnabled", true);
+
+            pipeline.setNodeOnline("pipeline-telegram", tgOnline);
+            pipeline.setNodeOnline("pipeline-gateway", gwOnline);
+            pipeline.setNodeOnline("pipeline-worker", workerOnline);
+            pipeline.setNodeOnline("pipeline-host", hostOnline);
+            pipeline.setNodeOnline("pipeline-device", espOnline);
+            pipeline.setNodeOnline("pipeline-storage", storageOnline);
             pipeline.setNodeOnline("pipeline-domain", ddnsOnline);
+
             View domainNode = pipeline.findViewWithTag("pipeline-domain");
             if (domainNode instanceof ViewGroup && ((ViewGroup) domainNode).getChildAt(0) instanceof TextView) {
-                ((TextView) ((ViewGroup) domainNode).getChildAt(0)).setText(!ddnsDomain.isEmpty() ? ddnsDomain : "Domain");
+                ((TextView) ((ViewGroup) domainNode).getChildAt(0)).setText(ddnsConfigured ? ddnsDomain : "Domain");
             }
             View storageNode = pipeline.findViewWithTag("pipeline-storage");
             if (storageNode instanceof ViewGroup && ((ViewGroup) storageNode).getChildAt(0) instanceof TextView) {
                 ((TextView) ((ViewGroup) storageNode).getChildAt(0)).setText(isNasStoragePath(outputDirectory) ? "NAS" : "Storage");
+            }
+
+            int onlineCount = (tgOnline ? 1 : 0) + (gwOnline ? 1 : 0) + (workerOnline ? 1 : 0)
+                + (hostOnline ? 1 : 0) + (espOnline ? 1 : 0) + (storageOnline ? 1 : 0) + (ddnsOnline ? 1 : 0);
+            View liveView = body.findViewWithTag("dashboard-live-status");
+            if (liveView instanceof TextView) {
+                int color = onlineCount == 7 ? Color.rgb(16, 185, 129) : (onlineCount >= 4 ? Color.rgb(245, 158, 11) : Color.rgb(239, 68, 68));
+                ((TextView) liveView).setTextColor(color);
+                String suffix = tr("module trực tuyến · cập nhật trực tiếp");
+                ((TextView) liveView).setText("●  " + onlineCount + "/7 " + suffix);
             }
         }
         setCard("device-card", d.optBoolean("connected") ? d.optString("chip") + " · " + d.optString("boardProfile") + " · " + (d.optLong("flashBytes") / 1048576) + " MB flash\nWi‑Fi: " + (d.optBoolean("wifiConnected") ? d.optString("wifiSsid") + " · " + d.optString("ipAddress") + " · " + d.optInt("rssi") + " dBm · đã kết nối" : "chưa kết nối") + "\nAP: " + (d.optBoolean("provisioningApActive") ? "đang phát" : "tắt") + " · cấu hình " + (d.optBoolean("provisioningApEnabled") ? "bật" : "tắt") : d.optString("error", "ESP32 chưa kết nối"));
@@ -4943,6 +4969,8 @@ public class MainActivity extends Activity {
             {"Lưu cài đặt bảo mật", "Save security settings", "保存安全设置"},
             {"ESP32 là trung tâm điều phối; Gateway nối Wi-Fi, Telegram và Windows worker.", "ESP32 coordinates the system; the Gateway connects Wi-Fi, Telegram, and the Windows worker.", "ESP32 负责协调系统；网关连接 Wi-Fi、Telegram 和 Windows 工作进程。"},
             {"●  7/7 tuyến hoạt động · cập nhật trực tiếp", "●  7/7 routes active · live updates", "●  7/7 条线路运行中 · 实时更新"},
+            {"module trực tuyến · cập nhật trực tiếp", "modules online · live updates", "个模块在线 · 实时更新"},
+            {"●  7/7 module trực tuyến · cập nhật trực tiếp", "●  7/7 modules online · live updates", "●  7/7 个模块在线 · 实时更新"},
             {"Thư mục đầu ra", "Output folder", "输出文件夹"}, {"Hoàn tất (30 ngày)", "Completed (30 days)", "已完成（30 天）"},
             {"Lỗi (30 ngày)", "Failed (30 days)", "失败（30 天）"}, {"CPU · 2 core", "CPU · 2 cores", "CPU · 2 核"},
             {"RAM · heap", "RAM · heap", "RAM · 堆"}, {"Đang chờ", "Queued", "等待中"},
