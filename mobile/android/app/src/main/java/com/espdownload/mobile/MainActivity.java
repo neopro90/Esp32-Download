@@ -130,6 +130,7 @@ public class MainActivity extends Activity {
     private static final int REQUEST_WIFI_SCAN_PERMISSION = 8440;
     private static final int REQUEST_DIRECT_AP_RESTORE = 8441;
     private ConnectivityManager.NetworkCallback activeNetworkCallback;
+    private Network activeApNetwork;
     private static int INK = Color.rgb(23, 33, 30);
     private static int MUTED = Color.rgb(112, 126, 116);
     private static int GREEN = Color.rgb(36, 109, 82);
@@ -948,11 +949,19 @@ public class MainActivity extends Activity {
                 activeNetworkCallback = new ConnectivityManager.NetworkCallback() {
                     @Override
                     public void onAvailable(Network network) {
+                        activeApNetwork = network;
                         try { cm.bindProcessToNetwork(network); } catch (Exception ignored) {}
                         main.post(() -> verifyAndShowSetupSuccess(ssid));
                     }
                     @Override
+                    public void onLost(Network network) {
+                        if (activeApNetwork == network) activeApNetwork = null;
+                        try { cm.bindProcessToNetwork(null); } catch (Exception ignored) {}
+                    }
+                    @Override
                     public void onUnavailable() {
+                        activeApNetwork = null;
+                        try { cm.bindProcessToNetwork(null); } catch (Exception ignored) {}
                         main.post(() -> onApConnectFailure("Không thể kết nối vào AP " + ssid + ". Bạn có thể thử kết nối thủ công trong cài đặt Wi-Fi."));
                     }
                 };
@@ -4225,35 +4234,113 @@ public class MainActivity extends Activity {
 
     private JSONObject api(String path, String method, JSONObject payload) throws Exception { return request(host, path, method, payload, sessionToken); }
 
-    private JSONObject request(String base, String path, String method, JSONObject payload, String token) throws Exception {
-        URL url = new URL(normalizeHost(base) + path); HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-        conn.setRequestMethod(method); conn.setConnectTimeout(5000); conn.setReadTimeout(8000); conn.setUseCaches(false); conn.setRequestProperty("Accept", "application/json");
-        if (!token.isEmpty()) conn.setRequestProperty("X-Local-Session", token);
-        if (!deviceApiToken.isEmpty()) conn.setRequestProperty("X-Device-Token", deviceApiToken);
-        else if (!token.isEmpty()) conn.setRequestProperty("X-Device-Token", token);
-        if (payload != null) { conn.setDoOutput(true); conn.setRequestProperty("Content-Type", "application/json; charset=utf-8"); try (OutputStream out = conn.getOutputStream()) { out.write(payload.toString().getBytes(StandardCharsets.UTF_8)); } }
-        int code = conn.getResponseCode(); InputStream stream = code >= 200 && code < 400 ? conn.getInputStream() : conn.getErrorStream();
-        ByteArrayOutputStream bytes = new ByteArrayOutputStream(); if (stream != null) { byte[] buffer = new byte[4096]; int n; while ((n = stream.read(buffer)) > 0) bytes.write(buffer, 0, n); stream.close(); }
-        String text = new String(bytes.toByteArray(), StandardCharsets.UTF_8); JSONObject result;
-        try { result = text.isEmpty() ? new JSONObject() : new JSONObject(text); } catch (Exception e) { result = new JSONObject(); }
-        conn.disconnect();
-        if (code < 200 || code >= 300) {
-            JSONObject err = result.optJSONObject("error"); String message = err == null ? result.optString("error", "HTTP " + code) : err.optString("message", "HTTP " + code);
-            if (code == 401 && result.optString("code").equals("LOGIN_REQUIRED")) {
-                if (sessionToken.startsWith("offline-")) {
-                    attemptSeamlessUpgrade();
-                } else {
-                    main.post(() -> { clearSession(); showLogin(); });
-                }
+    private HttpURLConnection openConnectionToUrl(URL url) throws java.io.IOException {
+        ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+        String host = url.getHost();
+        boolean isApLocal = host != null && ("192.168.4.1".equals(host) || host.startsWith("192.168.4."));
+
+        if (cm != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (isApLocal && activeApNetwork != null) {
+                try {
+                    return (HttpURLConnection) activeApNetwork.openConnection(url);
+                } catch (Exception ignored) {}
             }
-            throw new ApiException(message, code, result.optString("code"));
+            try {
+                Network[] allNetworks = cm.getAllNetworks();
+                for (Network net : allNetworks) {
+                    NetworkCapabilities caps = cm.getNetworkCapabilities(net);
+                    if (caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
+                        if (isApLocal) {
+                            try {
+                                return (HttpURLConnection) net.openConnection(url);
+                            } catch (Exception ignored) {}
+                        }
+                    }
+                }
+            } catch (Exception ignored) {}
         }
-        return result;
+        return (HttpURLConnection) url.openConnection();
+    }
+
+    private JSONObject request(String base, String path, String method, JSONObject payload, String token) throws Exception {
+        URL url = new URL(normalizeHost(base) + path);
+        HttpURLConnection conn = null;
+        int maxRetries = 2;
+        Exception lastException = null;
+
+        for (int attempt = 0; attempt <= maxRetries; attempt++) {
+            try {
+                conn = openConnectionToUrl(url);
+                conn.setRequestMethod(method);
+                conn.setConnectTimeout(5000);
+                conn.setReadTimeout(8000);
+                conn.setUseCaches(false);
+                conn.setRequestProperty("Accept", "application/json");
+                if (!token.isEmpty()) conn.setRequestProperty("X-Local-Session", token);
+                if (!deviceApiToken.isEmpty()) conn.setRequestProperty("X-Device-Token", deviceApiToken);
+                else if (!token.isEmpty()) conn.setRequestProperty("X-Device-Token", token);
+                if (payload != null) {
+                    conn.setDoOutput(true);
+                    conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+                    try (OutputStream out = conn.getOutputStream()) {
+                        out.write(payload.toString().getBytes(StandardCharsets.UTF_8));
+                    }
+                }
+                int code = conn.getResponseCode();
+                InputStream stream = code >= 200 && code < 400 ? conn.getInputStream() : conn.getErrorStream();
+                ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+                if (stream != null) {
+                    byte[] buffer = new byte[4096];
+                    int n;
+                    while ((n = stream.read(buffer)) > 0) bytes.write(buffer, 0, n);
+                    stream.close();
+                }
+                String text = new String(bytes.toByteArray(), StandardCharsets.UTF_8);
+                JSONObject result;
+                try { result = text.isEmpty() ? new JSONObject() : new JSONObject(text); }
+                catch (Exception e) { result = new JSONObject(); }
+                conn.disconnect();
+                if (code < 200 || code >= 300) {
+                    JSONObject err = result.optJSONObject("error");
+                    String message = err == null ? result.optString("error", "HTTP " + code) : err.optString("message", "HTTP " + code);
+                    if (code == 401 && result.optString("code").equals("LOGIN_REQUIRED")) {
+                        if (sessionToken.startsWith("offline-")) {
+                            attemptSeamlessUpgrade();
+                        } else {
+                            main.post(() -> { clearSession(); showLogin(); });
+                        }
+                    }
+                    throw new ApiException(message, code, result.optString("code"));
+                }
+                return result;
+            } catch (Exception ex) {
+                lastException = ex;
+                if (conn != null) {
+                    try { conn.disconnect(); } catch (Exception ignored) {}
+                }
+                boolean isEnonet = ex.getMessage() != null && (ex.getMessage().contains("ENONET") || ex.getMessage().contains("EPERM") || ex.getMessage().contains("ENETUNREACH"));
+                if (isEnonet || (ex instanceof java.net.SocketException)) {
+                    try {
+                        ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+                        if (cm != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            cm.bindProcessToNetwork(null);
+                        }
+                    } catch (Exception ignored) {}
+                    if (attempt < maxRetries) {
+                        try { Thread.sleep(400); } catch (InterruptedException ignored) {}
+                        continue;
+                    }
+                }
+                throw ex;
+            }
+        }
+        if (lastException != null) throw lastException;
+        throw new IllegalStateException("Không thể kết nối mạng.");
     }
 
     private byte[] requestBinary(String base, String path, String token) throws Exception {
         URL url = new URL(normalizeHost(base) + path);
-        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+        HttpURLConnection connection = openConnectionToUrl(url);
         connection.setRequestMethod("GET");
         connection.setConnectTimeout(8000);
         connection.setReadTimeout(30000);
@@ -4379,7 +4466,7 @@ public class MainActivity extends Activity {
     private DiscoveredHost probeHost(String ipAddress) {
         try {
             URL url = new URL("http://" + ipAddress + "/api/v1/identify");
-            HttpURLConnection c = (HttpURLConnection) url.openConnection();
+            HttpURLConnection c = openConnectionToUrl(url);
             c.setConnectTimeout(350); c.setReadTimeout(500); c.setRequestMethod("GET");
             if (c.getResponseCode() == 200) {
                 ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -4400,7 +4487,7 @@ public class MainActivity extends Activity {
 
         try {
             URL url = new URL("http://" + ipAddress + ":8787/api/mobile/health");
-            HttpURLConnection c = (HttpURLConnection) url.openConnection();
+            HttpURLConnection c = openConnectionToUrl(url);
             c.setConnectTimeout(350); c.setReadTimeout(500); c.setRequestMethod("GET");
             int code = c.getResponseCode(); c.disconnect();
             if (code == 200) {
