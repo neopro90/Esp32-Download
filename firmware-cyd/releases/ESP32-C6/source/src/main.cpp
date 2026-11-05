@@ -1727,41 +1727,78 @@ void handleConfigBackup() {
 void handleConfigRestore() {
     JsonDocument request;
     if (!readRequestJson(request)) return;
-    if ((request["schemaVersion"] | 0) != 1) {
+    if (!request["schemaVersion"].isNull() && (request["schemaVersion"] | 0) != 1) {
         sendError(400, "UNSUPPORTED_BACKUP_VERSION", "Configuration backup version is not supported.");
         return;
     }
+
     JsonObjectConst settings = request["settings"].as<JsonObjectConst>();
     JsonObjectConst sharedSettings = request["sharedSettings"].as<JsonObjectConst>();
-    if (settings.isNull() || sharedSettings.isNull()) {
-        sendError(400, "INVALID_BACKUP", "Device and shared settings are required.");
+
+    // Support full system backup structure: { format, hostConfig, deviceConfig: { settings, sharedSettings } }
+    if (!request["deviceConfig"].isNull()) {
+        JsonObjectConst devCfg = request["deviceConfig"].as<JsonObjectConst>();
+        if (!devCfg.isNull()) {
+            if (!devCfg["settings"].isNull()) {
+                settings = devCfg["settings"].as<JsonObjectConst>();
+            }
+            if (!devCfg["sharedSettings"].isNull()) {
+                sharedSettings = devCfg["sharedSettings"].as<JsonObjectConst>();
+            }
+        }
+    }
+
+    // Support flat settings directly at root
+    if (settings.isNull() && (!request["wifiSsid"].isNull() || !request["apiToken"].isNull() || !request["telegramBotToken"].isNull())) {
+        settings = request.as<JsonObjectConst>();
+    }
+
+    // Support hostConfig as sharedSettings fallback
+    if (sharedSettings.isNull() && !request["hostConfig"].isNull()) {
+        JsonObjectConst hostCfg = request["hostConfig"].as<JsonObjectConst>();
+        if (!hostCfg.isNull()) {
+            sharedSettings = hostCfg;
+        }
+    }
+
+    if (settings.isNull()) {
+        sendError(400, "INVALID_BACKUP", "Device settings object is required.");
         return;
     }
+
     const String ssid = settings["wifiSsid"] | "";
     const String wifiPassword = settings["wifiPass"] | "";
-    const String nextApiToken = settings["apiToken"] | "";
+    const bool clearWifi = settings["clearWifi"] | false;
+    String nextApiToken = settings["apiToken"] | "";
     String nextTelegramToken = settings["telegramBotToken"] | "";
     String nextChatIds = settings["telegramAllowedChatIds"] | "";
     String nextRuntimeUrl = settings["runtimeBaseUrl"] | "";
-    const bool nextApEnabled = settings["apEnabled"] | true;
-    const bool nextTelegramEnabled = settings["telegramEnabled"] | true;
-    const int requestedRetention = settings["urlRetentionDays"] | -1;
-    JsonArrayConst configuredCommands = settings["gpioCommands"].as<JsonArrayConst>();
-    String error;
-    if (ssid.length() > 32 || wifiPassword.length() > 64 ||
-        nextApiToken.length() < 32 || nextApiToken.length() > 128 ||
-        requestedRetention < 0 || requestedRetention > 3650 || configuredCommands.isNull() ||
-        configuredCommands.size() > kMaxGpioCommands) {
-        sendError(400, "INVALID_BACKUP", "A device setting is missing or outside its supported range.");
+    const bool nextApEnabled = !settings["apEnabled"].isNull() ? (settings["apEnabled"] | true) : apEnabled;
+    const bool nextTelegramEnabled = !settings["telegramEnabled"].isNull() ? (settings["telegramEnabled"] | true) : telegramEnabled;
+    int requestedRetention = !settings["urlRetentionDays"].isNull() ? (settings["urlRetentionDays"] | 30) : 30;
+    if (requestedRetention < 0 || requestedRetention > 3650) requestedRetention = 30;
+
+    if (ssid.length() > 32 || wifiPassword.length() > 64) {
+        sendError(400, "INVALID_BACKUP", "Wi-Fi settings are outside supported range.");
         return;
     }
-    for (size_t i = 0; i < nextApiToken.length(); ++i) {
-        const char c = nextApiToken[i];
-        if (!(isAlphaNumeric(c) || c == '-' || c == '_')) {
-            sendError(400, "INVALID_BACKUP", "API token contains unsupported characters.");
-            return;
+
+    // Preserve existing API token if backup token is empty
+    if (nextApiToken.isEmpty()) {
+        nextApiToken = apiToken;
+    } else if (nextApiToken.length() < 32 || nextApiToken.length() > 128) {
+        sendError(400, "INVALID_BACKUP", "API token length must be between 32 and 128 characters.");
+        return;
+    } else {
+        for (size_t i = 0; i < nextApiToken.length(); ++i) {
+            const char c = nextApiToken[i];
+            if (!(isAlphaNumeric(c) || c == '-' || c == '_')) {
+                sendError(400, "INVALID_BACKUP", "API token contains unsupported characters.");
+                return;
+            }
         }
     }
+
     nextTelegramToken.trim();
     nextChatIds.trim();
     nextRuntimeUrl.trim();
@@ -1783,69 +1820,82 @@ void handleConfigRestore() {
     while (nextChatIds.indexOf(",,") >= 0) nextChatIds.replace(",,", ",");
 
     std::vector<GpioCommand> nextCommands;
-    for (JsonObjectConst item : configuredCommands) {
-        GpioCommand command;
-        command.command = item["command"] | "";
-        command.trigger = item["trigger"] | "";
-        command.replyMessage = item["replyMessage"] | "";
-        command.command.trim();
-        command.command.toLowerCase();
-        command.trigger.trim();
-        command.replyMessage.trim();
-        const int pin = item["pin"] | -1;
-        const int pulseMs = item["pulseMs"] | -1;
-        command.activeHigh = item["activeHigh"] | true;
-        bool pinAllowed = false;
-        for (uint8_t allowed : kAllowedGpioPins) if (pin == allowed) pinAllowed = true;
-        if (!pinAllowed || command.command.length() > 32 || command.trigger.length() > 64 ||
-            command.replyMessage.length() > 160 || pulseMs < 0 || pulseMs > 10000) {
-            sendError(400, "INVALID_BACKUP_GPIO", "A GPIO setting is not supported by this hardware profile.");
-            return;
-        }
-        for (const GpioCommand &existing : nextCommands) {
-            if (!command.command.isEmpty() && command.command == existing.command) {
-                sendError(400, "INVALID_BACKUP_GPIO", "GPIO command names must be unique.");
-                return;
+    if (!settings["gpioCommands"].isNull()) {
+        JsonArrayConst configuredCommands = settings["gpioCommands"].as<JsonArrayConst>();
+        if (!configuredCommands.isNull() && configuredCommands.size() <= kMaxGpioCommands) {
+            for (JsonObjectConst item : configuredCommands) {
+                GpioCommand command;
+                command.command = item["command"] | "";
+                command.trigger = item["trigger"] | "";
+                command.replyMessage = item["replyMessage"] | "";
+                command.command.trim();
+                command.command.toLowerCase();
+                command.trigger.trim();
+                command.replyMessage.trim();
+                const int pin = item["pin"] | -1;
+                const int pulseMs = item["pulseMs"] | -1;
+                command.activeHigh = item["activeHigh"] | true;
+                bool pinAllowed = false;
+                for (uint8_t allowed : kAllowedGpioPins) if (pin == allowed) pinAllowed = true;
+                if (!pinAllowed || command.command.length() > 32 || command.trigger.length() > 64 ||
+                    command.replyMessage.length() > 160 || pulseMs < 0 || pulseMs > 10000) {
+                    continue;
+                }
+                bool duplicate = false;
+                for (const GpioCommand &existing : nextCommands) {
+                    if (!command.command.isEmpty() && command.command == existing.command) { duplicate = true; break; }
+                }
+                if (duplicate) continue;
+                command.pin = static_cast<uint8_t>(pin);
+                command.pulseMs = static_cast<uint16_t>(pulseMs);
+                nextCommands.push_back(command);
             }
         }
-        command.pin = static_cast<uint8_t>(pin);
-        command.pulseMs = static_cast<uint16_t>(pulseMs);
-        nextCommands.push_back(command);
-    }
-    if (!validateHostSettings(sharedSettings, error)) {
-        sendError(400, "INVALID_BACKUP_SHARED_SETTINGS", error.c_str());
-        return;
-    }
-    if (!storageReady) {
-        sendError(507, "SETTINGS_STORAGE_FAILED", "LittleFS is not mounted.");
-        return;
+    } else {
+        nextCommands = gpioCommands;
     }
 
-    JsonDocument storedShared;
-    storedShared["schemaVersion"] = 1;
-    storedShared["revision"] = sharedHostSettingsRevision + 1;
-    storedShared["settings"].set(sharedSettings);
-    if (!writeHostSettings(storedShared)) {
-        sendError(507, "SETTINGS_STORAGE_FAILED", lastStorageError.c_str());
-        return;
+    // Restore sharedHostSettings if provided and valid, without failing device restore if not
+    if (!sharedSettings.isNull() && storageReady) {
+        String hostErr;
+        if (validateHostSettings(sharedSettings, hostErr)) {
+            JsonDocument storedShared;
+            storedShared["schemaVersion"] = 1;
+            storedShared["revision"] = sharedHostSettingsRevision + 1;
+            storedShared["settings"].set(sharedSettings);
+            if (writeHostSettings(storedShared)) {
+                sharedHostSettings.set(storedShared["settings"].as<JsonVariantConst>());
+                sharedHostSettingsRevision = storedShared["revision"].as<uint32_t>();
+                sharedHostSettingsInitialized = true;
+                Serial.println("[RESTORE] Shared host settings saved to LittleFS.");
+            }
+        } else {
+            Serial.printf("[RESTORE] Note: shared host settings skipped (%s)\n", hostErr.c_str());
+        }
     }
-    sharedHostSettings.set(storedShared["settings"].as<JsonVariantConst>());
-    sharedHostSettingsRevision = storedShared["revision"].as<uint32_t>();
-    sharedHostSettingsInitialized = true;
 
-    if (ssid.isEmpty()) {
+    // Preserve existing Wi-Fi unless new Wi-Fi is provided or clearWifi is requested
+    if (!ssid.isEmpty()) {
+        preferences.putString("wifiSsid", ssid);
+        if (!wifiPassword.isEmpty() || preferences.getString("wifiSsid", "") != ssid) {
+            preferences.putString("wifiPass", wifiPassword);
+        }
+        Serial.printf("[RESTORE] Restored Wi-Fi SSID '%s'\n", ssid.c_str());
+    } else if (clearWifi) {
         preferences.remove("wifiSsid");
         preferences.remove("wifiPass");
+        Serial.println("[RESTORE] Wi-Fi credentials cleared as requested.");
     } else {
-        preferences.putString("wifiSsid", ssid);
-        preferences.putString("wifiPass", wifiPassword);
+        Serial.println("[RESTORE] Backup had empty Wi-Fi SSID; preserved current Wi-Fi configuration.");
     }
+
     preferences.putBool("apEnabled", nextApEnabled);
     preferences.putBool("tgEnabled", nextTelegramEnabled);
     preferences.putString("tgToken", nextTelegramToken);
     preferences.putString("tgChats", nextChatIds);
     preferences.putString("runtimeUrl", nextRuntimeUrl);
     preferences.putUShort("retentionDays", static_cast<uint16_t>(requestedRetention));
+
     if (!settings["ddnsEnabled"].isNull()) {
         ddnsEnabled = settings["ddnsEnabled"] | false;
         preferences.putBool("ddnsEnabled", ddnsEnabled);
@@ -1867,6 +1917,7 @@ void handleConfigRestore() {
         ddnsToken = request["ddnsToken"].as<String>();
         preferences.putString("ddnsToken", ddnsToken);
     }
+
     JsonDocument gpioDocument;
     JsonArray gpioArray = gpioDocument.to<JsonArray>();
     for (const GpioCommand &command : nextCommands) {
@@ -1909,7 +1960,8 @@ void handleConfigRestore() {
     response["restored"] = true;
     response["restarting"] = true;
     sendJson(200, response);
-    delay(300);
+    server.client().flush();
+    delay(1000);
     ESP.restart();
 }
 

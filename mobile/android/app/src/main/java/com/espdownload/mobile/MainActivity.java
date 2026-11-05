@@ -3437,13 +3437,22 @@ public class MainActivity extends Activity {
         if ("esp-download-encrypted-backup".equals(backup.optString("format"))) {
             throw new IllegalArgumentException(tr("Backup cũ được mã hóa bằng mật khẩu; hãy dùng bản app cũ để khôi phục."));
         }
-        if (!"esp-download-system-backup".equals(backup.optString("format")) ||
-            backup.optInt("schemaVersion") != 1 ||
-            !(backup.opt("hostConfig") instanceof JSONObject) ||
-            !(backup.opt("deviceConfig") instanceof JSONObject)) {
-            throw new IllegalArgumentException(tr("Nội dung backup không đầy đủ hoặc không được hỗ trợ."));
+        if ("esp-download-system-backup".equals(backup.optString("format")) &&
+            backup.optInt("schemaVersion") == 1 &&
+            (backup.opt("hostConfig") instanceof JSONObject) &&
+            (backup.opt("deviceConfig") instanceof JSONObject)) {
+            return backup;
         }
-        return backup;
+        if (backup.has("settings") || backup.has("deviceConfig")) {
+            JSONObject systemWrapper = new JSONObject();
+            systemWrapper.put("format", "esp-download-system-backup");
+            systemWrapper.put("schemaVersion", 1);
+            systemWrapper.put("createdAt", new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).format(new java.util.Date()));
+            systemWrapper.put("deviceConfig", backup.has("deviceConfig") ? backup.getJSONObject("deviceConfig") : backup);
+            systemWrapper.put("hostConfig", backup.has("hostConfig") ? backup.getJSONObject("hostConfig") : new JSONObject());
+            return systemWrapper;
+        }
+        throw new IllegalArgumentException(tr("Nội dung backup không đầy đủ hoặc không được hỗ trợ."));
     }
 
     private void saveSystemBackupToDownloads(String filename, byte[] data) throws Exception {
@@ -3552,8 +3561,13 @@ public class MainActivity extends Activity {
                 .setTitle(tr("Xác nhận khôi phục cấu hình"))
                 .setMessage(tr("Thao tác sẽ thay thế cấu hình host và ESP32, gồm thông tin đăng nhập và Wi-Fi. ESP32 sẽ khởi động lại; cấu hình GPIO chỉ được nhận nếu tương thích với board đang chạy. Tài khoản host sau khôi phục sẽ theo bản backup.\nNguồn backup: ") + chip + "\n\n" + tr("Tiếp tục?"))
                 .setPositiveButton(tr("Khôi phục"), (dialog, which) -> runIo(() -> {
-                    JSONObject response = api("/api/local/config/restore", "POST", backup);
-                    return response;
+                    try {
+                        return api("/api/local/config/restore", "POST", backup);
+                    } catch (Exception hostErr) {
+                        JSONObject deviceConfig = backup.optJSONObject("deviceConfig");
+                        if (deviceConfig == null) deviceConfig = backup;
+                        return request(host, "/api/v1/config/restore", "POST", deviceConfig, deviceApiToken);
+                    }
                 }, response -> {
                     toast(tr("Đã khôi phục cấu hình host và ESP32. ESP32 đang khởi động lại."));
                     refreshStatus(false);

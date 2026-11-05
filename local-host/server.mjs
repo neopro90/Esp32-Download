@@ -781,10 +781,8 @@ async function requestDevice(apiPath, method = "GET", body = undefined, timeoutM
     candidateBases.push(lastKnownDeviceBaseUrl);
   }
   candidateBases.push(configuredBase);
-  if (candidateBases.some((b) => b.includes(".local"))) {
-    const arpIp = tryResolveEsp32IpFromArp();
-    if (arpIp) candidateBases.unshift(arpIp);
-  }
+  const arpIp = tryResolveEsp32IpFromArp();
+  if (arpIp) candidateBases.push(arpIp);
   const bases = Array.from(new Set(candidateBases.filter(Boolean)));
   let lastError;
   let lastResult;
@@ -810,7 +808,7 @@ async function requestDevice(apiPath, method = "GET", body = undefined, timeoutM
       lastResult = { status: response.status, payload };
       if (response.status >= 200 && response.status < 300) {
         lastKnownDeviceBaseUrl = base;
-        if (config.deviceBaseUrl.includes(".local") && !base.includes(".local")) {
+        if (config.deviceBaseUrl !== base) {
           config.deviceBaseUrl = base;
           void saveConfig();
         }
@@ -819,7 +817,7 @@ async function requestDevice(apiPath, method = "GET", body = undefined, timeoutM
         if (payload?.wifiConnected === true && isPrivateIpv4Address(String(payload.ipAddress ?? ""))) {
           const configuredUrl = new URL(configuredBase);
           lastKnownDeviceBaseUrl = `http://${payload.ipAddress}${configuredUrl.port ? `:${configuredUrl.port}` : ""}`;
-          if (config.deviceBaseUrl.includes(".local")) {
+          if (config.deviceBaseUrl !== lastKnownDeviceBaseUrl) {
             config.deviceBaseUrl = lastKnownDeviceBaseUrl;
             void saveConfig();
           }
@@ -2378,9 +2376,10 @@ async function handleRuntimeRequest(request, response, pathname) {
   const incomingRemote = request.socket.remoteAddress;
   const incomingIp = incomingRemote?.startsWith("::ffff:") ? incomingRemote.slice(7) : incomingRemote;
   if (incomingIp && isPrivateIpv4Address(incomingIp)) {
-    lastKnownDeviceBaseUrl = `http://${incomingIp}`;
-    if (config.deviceBaseUrl.includes(".local")) {
-      config.deviceBaseUrl = `http://${incomingIp}`;
+    const incomingBase = `http://${incomingIp}`;
+    lastKnownDeviceBaseUrl = incomingBase;
+    if (config.deviceBaseUrl !== incomingBase) {
+      config.deviceBaseUrl = incomingBase;
       void saveConfig();
     }
   }
