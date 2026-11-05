@@ -40,7 +40,7 @@ versa.
 
 ## Build configuration
 
-- `app/build.gradle` defines the `standard` and `freshTest` product flavors with `versionCode 3` and `versionName "1.3"`.
+- `app/build.gradle` defines the `standard` and `freshTest` product flavors with `versionCode 10` and `versionName "1.3.1.7"`.
 - `standard` installs as `com.espdownload.mobile`.
 - `freshTest` installs side-by-side as `com.espdownload.mobile.fresh`; it starts
   without the normal app's saved host or preferences.
@@ -54,6 +54,8 @@ versa.
 - **Multi-target Host Discovery**: Scans subnet for both ESP32 (port 80 `/api/v1/identify`) and Windows PC Host (port 8787 `/api/mobile/health`).
 - **Config Synchronization**: Security tab features "Sync Config" button to export timestamped `.espbackup` files to `Download/Esp32 System/` and push configuration to the connected host or ESP32.
 - **DuckDNS Remote Access**: Wi-Fi/AP screen provides configuration for DuckDNS domain, token, and status monitoring.
+- **Smart 4G/LAN Auto-Failover**: Automatically detects cellular mobile data (4G/LTE) vs local Wi-Fi LAN and routes requests to the proper endpoint without socket timeouts.
+- **In-App Updater**: System Check tab allows directly checking GitHub for new revisions (`version.json`) and downloading/installing the latest APK seamlessly.
 
 ## Build and output
 
