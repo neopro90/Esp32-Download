@@ -14,6 +14,7 @@ import android.app.PendingIntent;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbManager;
 import android.os.Build;
+import androidx.core.content.FileProvider;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
@@ -207,6 +208,7 @@ public class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle saved) {
         super.onCreate(saved);
+        cleanupTempFiles();
         prefs = getSharedPreferences("esp-download", MODE_PRIVATE);
         darkTheme = prefs.getBoolean("dark-theme", false);
         uiLanguage = prefs.getString("ui-language", "en");
@@ -1317,8 +1319,11 @@ public class MainActivity extends Activity {
         actions.setPadding(0, 0, 0, dp(14));
         Button btnCheck = button("↻ Quét lại", false);
         actions.addView(btnCheck, new LinearLayout.LayoutParams(0, dp(40), 1));
-        Button btnInstall = button("⚡ 1-Click Cài gói thiếu", true);
-        actions.addView(btnInstall, new LinearLayout.LayoutParams(0, dp(40), 1.4f));
+        Button btnInstall = button("⚡ Cài gói thiếu", true);
+        actions.addView(btnInstall, new LinearLayout.LayoutParams(0, dp(40), 1.2f));
+        Button btnAppUpdate = button("🔄 Cập nhật APK", false);
+        actions.addView(btnAppUpdate, new LinearLayout.LayoutParams(0, dp(40), 1.2f));
+        btnAppUpdate.setOnClickListener(v -> checkForAppUpdate(true));
 
         LinearLayout cards = column(body);
         cards.setTag("system-tools-list");
@@ -1654,6 +1659,182 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void cleanupFirmwareTempFiles() {
+        try {
+            File cacheFw = new File(getCacheDir(), "esp_firmware_tmp.bin");
+            if (cacheFw.exists()) cacheFw.delete();
+            File[] files = getCacheDir().listFiles();
+            if (files != null) {
+                for (File f : files) {
+                    if (f.getName().endsWith(".bin") || f.getName().startsWith("esp_firmware")) {
+                        f.delete();
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private void cleanupApkTempFiles() {
+        try {
+            File cacheApk = new File(getCacheDir(), "esp-download-update.apk");
+            if (cacheApk.exists()) cacheApk.delete();
+            File[] files = getCacheDir().listFiles();
+            if (files != null) {
+                for (File f : files) {
+                    if (f.getName().endsWith(".apk") || f.getName().startsWith("esp-download-update")) {
+                        f.delete();
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private void cleanupTempFiles() {
+        cleanupFirmwareTempFiles();
+        cleanupApkTempFiles();
+    }
+
+    private void checkForAppUpdate(boolean userInitiated) {
+        if (userInitiated) {
+            toast("Đang kiểm tra bản cập nhật mới từ GitHub…");
+        }
+        runIo(() -> {
+            URL url = new URL("https://raw.githubusercontent.com/neopro90/Esp32-Download/main/version.json");
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setConnectTimeout(8000);
+            conn.setReadTimeout(12000);
+            conn.setRequestProperty("User-Agent", "EspDownload-Android-App/" + BuildConfig.VERSION_NAME);
+            conn.setRequestProperty("Cache-Control", "no-cache");
+            int code = conn.getResponseCode();
+            if (code != 200) {
+                throw new IllegalStateException("Máy chủ phản hồi HTTP " + code);
+            }
+            try (InputStream in = conn.getInputStream(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+                byte[] buf = new byte[4096];
+                int n;
+                while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
+                return new JSONObject(new String(out.toByteArray(), StandardCharsets.UTF_8));
+            } finally {
+                conn.disconnect();
+            }
+        }, json -> {
+            try {
+                int remoteVersionCode = json.optInt("versionCode", 0);
+                String remoteVersionName = json.optString("version", "");
+                String apkUrl = json.optString("apkUrl", "");
+                String releaseNotes = json.optString("releaseNotes", "");
+
+                int currentVersionCode = BuildConfig.VERSION_CODE;
+                String currentVersionName = BuildConfig.VERSION_NAME;
+
+                boolean hasNewVersion = remoteVersionCode > currentVersionCode;
+                if (!hasNewVersion && !remoteVersionName.isEmpty() && !currentVersionName.equalsIgnoreCase(remoteVersionName)) {
+                    hasNewVersion = true;
+                }
+
+                if (hasNewVersion && !apkUrl.isEmpty()) {
+                    String msg = "Đã có phiên bản mới: v" + remoteVersionName + " (hiện tại: v" + currentVersionName + ")\n\n"
+                            + (releaseNotes.isEmpty() ? "Bấm Cập nhật để tải về và cài đặt đè lên phiên bản hiện tại." : "Nội dung cập nhật:\n" + releaseNotes);
+                    new android.app.AlertDialog.Builder(this)
+                            .setTitle(tr("Có bản cập nhật mới!"))
+                            .setMessage(tr(msg))
+                            .setPositiveButton(tr("Cập nhật ngay"), (dialog, which) -> downloadAndInstallApk(apkUrl, remoteVersionName))
+                            .setNegativeButton(tr("Để sau"), null)
+                            .show();
+                } else {
+                    if (userInitiated) {
+                        toast("Ứng dụng đang ở phiên bản mới nhất (v" + currentVersionName + ").");
+                    }
+                }
+            } catch (Exception e) {
+                if (userInitiated) toast("Không thể xử lý thông tin cập nhật: " + e.getMessage());
+            }
+        }, error -> {
+            if (userInitiated) toast("Kiểm tra cập nhật thất bại: " + error.getMessage());
+        });
+    }
+
+    private void downloadAndInstallApk(String apkUrl, String versionName) {
+        toast("Đang tải bản cập nhật APK v" + versionName + "…");
+        cleanupApkTempFiles();
+        File apkFile = new File(getCacheDir(), "esp-download-update.apk");
+
+        runIo(() -> {
+            URL current = new URL(apkUrl);
+            for (int redirects = 0; redirects <= 5; redirects++) {
+                HttpURLConnection conn = (HttpURLConnection) current.openConnection();
+                conn.setConnectTimeout(15000);
+                conn.setReadTimeout(60000);
+                conn.setInstanceFollowRedirects(false);
+                int code = conn.getResponseCode();
+                if (code >= 300 && code <= 399) {
+                    String loc = conn.getHeaderField("Location");
+                    conn.disconnect();
+                    if (loc == null || redirects == 5) throw new IllegalStateException("Redirect không hợp lệ");
+                    current = new URL(current, loc);
+                    continue;
+                }
+                if (code != 200) {
+                    conn.disconnect();
+                    throw new IllegalStateException("HTTP " + code);
+                }
+                try (InputStream in = conn.getInputStream(); FileOutputStream fos = new FileOutputStream(apkFile)) {
+                    byte[] buf = new byte[32768];
+                    int n;
+                    while ((n = in.read(buf)) != -1) {
+                        fos.write(buf, 0, n);
+                    }
+                    fos.flush();
+                } finally {
+                    conn.disconnect();
+                }
+                break;
+            }
+            if (!apkFile.exists() || apkFile.length() < 1000) {
+                throw new IllegalStateException("File APK tải về không hoàn chỉnh");
+            }
+            return new JSONObject();
+        }, success -> {
+            toast("Tải APK thành công! Đang mở trình cài đặt…");
+            installApkFile(apkFile);
+        }, error -> {
+            cleanupApkTempFiles();
+            toast("Lỗi tải bản cập nhật APK: " + error.getMessage());
+        });
+    }
+
+    private void installApkFile(File apkFile) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                if (!getPackageManager().canRequestPackageInstalls()) {
+                    new android.app.AlertDialog.Builder(this)
+                            .setTitle(tr("Quyền cài đặt ứng dụng"))
+                            .setMessage(tr("Để cài đặt cập nhật tự động, bạn cần cấp quyền 'Cài đặt ứng dụng không rõ nguồn' cho ESP Download trong Cài đặt."))
+                            .setPositiveButton(tr("Đi tới Cài đặt"), (d, w) -> {
+                                Intent reqIntent = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                        Uri.parse("package:" + getPackageName()));
+                                startActivity(reqIntent);
+                            })
+                            .setNegativeButton(tr("Hủy"), null)
+                            .show();
+                    return;
+                }
+            }
+            Uri apkUri = FileProvider.getUriForFile(
+                    this,
+                    getPackageName() + ".fileprovider",
+                    apkFile
+            );
+            Intent intent = new Intent(Intent.ACTION_VIEW);
+            intent.setDataAndType(apkUri, "application/vnd.android.package-archive");
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(intent);
+        } catch (Exception e) {
+            toast("Không thể mở trình cài đặt: " + e.getMessage());
+        }
+    }
+
     private void downloadGithubFirmware(String source) {
         String targetModel = resolveTargetChipModel();
         String[] fwInfo = getFirmwareReleaseInfo(targetModel);
@@ -1683,17 +1864,19 @@ public class MainActivity extends Activity {
         final String finalTargetName = Uri.parse(firmwareUrl).getLastPathSegment() != null ? Uri.parse(firmwareUrl).getLastPathSegment() : targetFilename;
 
         setUsbStatus("Đang tải firmware " + targetModel + " (" + finalTargetName + ") từ HTTPS…", false);
+        cleanupFirmwareTempFiles();
         final byte[][] downloaded = new byte[1][];
         final Uri[] savedUri = new Uri[1];
 
         runIo(() -> {
             byte[] data = downloadFirmwareBytes(firmwareUrl);
             downloaded[0] = data;
-            try {
-                savedUri[0] = saveFirmwareToDownloads(finalTargetName, data);
-            } catch (Exception e) {
-                android.util.Log.w("EspDownload", "Could not save to Download/Esp System", e);
+            File tempFwFile = new File(getCacheDir(), "esp_firmware_tmp.bin");
+            try (FileOutputStream fos = new FileOutputStream(tempFwFile)) {
+                fos.write(data);
+                fos.flush();
             }
+            savedUri[0] = Uri.fromFile(tempFwFile);
             JSONObject result = new JSONObject();
             result.put("name", finalTargetName);
             result.put("size", data.length);
@@ -1709,13 +1892,14 @@ public class MainActivity extends Activity {
                 firmwareImages.add(fwImg);
                 renderFirmwareRows();
                 refreshFlashButtonState();
-                String msg = "Đã tải " + result.optString("name") + " (" + (bytes.length / 1024) + " KB) vào Download/Esp System. Sẵn sàng nạp!";
+                String msg = "Đã tải " + result.optString("name") + " (" + (bytes.length / 1024) + " KB). Sẵn sàng nạp!";
                 setUsbStatus(msg, true);
                 toast(msg);
             } catch (Exception error) {
                 toast("Không xử lý được firmware đã tải: " + error.getMessage());
             }
         }, error -> {
+            cleanupFirmwareTempFiles();
             setUsbStatus("Lỗi tải firmware: " + error.getMessage(), false);
             toast("Lỗi tải firmware: " + error.getMessage());
         });
@@ -1925,6 +2109,7 @@ public class MainActivity extends Activity {
             flasher.reset();
             return new JSONObject();
         }, result -> {
+            cleanupFirmwareTempFiles();
             flashInProgress = false;
             if (flashProgressBar != null) flashProgressBar.setProgress(100);
             if (flashProgressText != null) flashProgressText.setText(tr("Nạp firmware hoàn tất: 100%"));
@@ -1939,6 +2124,7 @@ public class MainActivity extends Activity {
             }
             refreshFlashButtonState();
         }, error -> {
+            cleanupFirmwareTempFiles();
             flashInProgress = false;
             if (flashProgressText != null) flashProgressText.setText(tr("Nạp firmware thất bại: ") + error.getMessage());
             if (selectedUsbDriver == null) {
@@ -3091,6 +3277,10 @@ public class MainActivity extends Activity {
             JSONObject p = collectHostConfig(); try { p.put("clearTelegramToken", true); } catch (Exception ignored) {}
             saveConfigPayload(p, "Đã xóa Telegram token.");
         });
+        section("Cập nhật ứng dụng APK");
+        Button btnCheckUpdate = button("🔄 Kiểm tra cập nhật APK (v" + BuildConfig.VERSION_NAME + ")", false);
+        body.addView(btnCheckUpdate, full());
+        btnCheckUpdate.setOnClickListener(v -> checkForAppUpdate(true));
     }
 
     private void renderGpioEditor(JSONArray commands) {

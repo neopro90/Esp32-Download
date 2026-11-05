@@ -26,7 +26,7 @@
 
 namespace {
 
-constexpr char kFirmwareVersion[] = "1.3";
+constexpr char kFirmwareVersion[] = "1.3.1.1";
 constexpr uint16_t kFirmwareConfigRevision = 1;
 constexpr char kHostname[] = "espdownload";
 constexpr char kSetupSsid[] = "espsystem";
@@ -164,6 +164,18 @@ button.network-option.selected{border-color:#55ae86;background:#253b2e}
   </section>
 
   <section class="card">
+    <div class="eyebrow">STAGE 0 · BACKUP & RESTORE</div>
+    <h2>Sao lưu & Khôi phục cấu hình</h2>
+    <small class="muted" style="display:block;margin-bottom:12px;">Xuất file cấu hình để lưu trữ hoặc nạp nhanh vào ESP32 mới mà không cần cài đặt lại thủ công.</small>
+    <div class="row">
+      <button id="btn-backup" type="button" class="secondary" style="flex:1;">⬇️ Sao lưu cấu hình</button>
+      <button id="btn-restore-trigger" type="button" style="flex:1;">⬆️ Khôi phục cấu hình</button>
+    </div>
+    <input id="restore-file" type="file" accept=".espbackup,.json,application/json" style="display:none;">
+    <div id="backup-feedback" role="status"></div>
+  </section>
+
+  <section class="card">
     <div class="eyebrow">STAGE 2 · NETWORK</div>
     <h2>Cài đặt kết nối Wi‑Fi</h2>
     <label for="ssid">Wi‑Fi SSID</label>
@@ -288,7 +300,10 @@ const translations={
   "Lệnh (vd: relay_on)":["Command (e.g. relay_on)","命令（例如 relay_on）"],
   "Đã lưu token (nhập mới để đổi)":["Token saved (enter a new one to change it)","令牌已保存（输入新令牌以更改）"],
   "Dán token từ BotFather":["Paste token from BotFather","粘贴来自 BotFather 的令牌"],
-  "Mở Web Dashboard đầy đủ trên PC (:8787)":["Open the full web dashboard on PC (:8787)","在电脑上打开完整 Web 控制面板（:8787）"]
+  "Mở Web Dashboard đầy đủ trên PC (:8787)":["Open the full web dashboard on PC (:8787)","在电脑上打开完整 Web 控制面板（:8787）"],
+  "Sao lưu & Khôi phục cấu hình":["Backup & restore config","配置备份与恢复"],
+  "⬇️ Sao lưu cấu hình":["⬇️ Backup config","⬇️ 备份配置"],
+  "⬆️ Khôi phục cấu hình":["⬆️ Restore config","⬆️ 恢复配置"]
 };
 const languageCodes=['en','vi','zh'];
 const languageLabels=['EN','VI','CN'];
@@ -506,6 +521,35 @@ if($('#save-ddns')) $('#save-ddns').onclick=async()=>{
     $('#ddns-token').value='';
     $('#ddns-feedback').textContent='Đã lưu thành công cấu hình DuckDNS!';$('#ddns-feedback').className='ok';
   }catch(e){$('#ddns-feedback').textContent=e.message;$('#ddns-feedback').className='bad';}finally{b.disabled=false;}
+};
+if($('#btn-backup')) $('#btn-backup').onclick=async()=>{
+  const b=$('#btn-backup');b.disabled=true;$('#backup-feedback').textContent='Đang tải bản sao lưu từ ESP32…';$('#backup-feedback').className='';
+  try{
+    const r=await fetch('/setup/backup',{cache:'no-store'});
+    if(!r.ok){const err=await r.json().catch(()=>({}));throw new Error(err.error?.message||`HTTP ${r.status}`);}
+    const blob=await r.blob();
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');a.href=url;a.download=`esp32-backup-${Date.now()}.espbackup`;
+    document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
+    $('#backup-feedback').textContent='✅ Đã tải file sao lưu thành công!';$('#backup-feedback').className='ok';
+  }catch(e){$('#backup-feedback').textContent='Lỗi tải sao lưu: '+e.message;$('#backup-feedback').className='bad';}finally{b.disabled=false;}
+};
+if($('#btn-restore-trigger')) $('#btn-restore-trigger').onclick=()=>{$('#restore-file').click();};
+if($('#restore-file')) $('#restore-file').onchange=async(e)=>{
+  const f=e.target.files?.[0];if(!f)return;
+  if(!confirm(`Khôi phục cấu hình từ "${f.name}"? ESP32 sẽ nạp lại cài đặt và tự khởi động lại.`)){$('#restore-file').value='';return;}
+  const b=$('#btn-restore-trigger');b.disabled=true;$('#backup-feedback').textContent='Đang nạp file cấu hình lên ESP32…';$('#backup-feedback').className='';
+  try{
+    const text=await f.text();
+    let payload;try{payload=JSON.parse(text);}catch(err){throw new Error('File không hợp lệ: phải là file JSON hoặc .espbackup');}
+    const r=await fetch('/setup/restore',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok)throw new Error(d.error?.message||`HTTP ${r.status}`);
+    $('#backup-feedback').innerHTML='🎉 Khôi phục cấu hình thành công! ESP32 đang khởi động lại…<br><small class="muted">Vui lòng đợi 5–10 giây rồi tải lại trang.</small>';
+    $('#backup-feedback').className='ok';
+    setTimeout(()=>{location.reload();},7000);
+  }catch(err){$('#backup-feedback').textContent='Khôi phục thất bại: '+err.message;$('#backup-feedback').className='bad';}
+  finally{b.disabled=false;$('#restore-file').value='';}
 };
 let queueJobs=[];
 let queueFilter='queued';
@@ -1686,17 +1730,15 @@ void handleSettings() {
 bool isPrivateRuntimeUrl(const String &value);
 
 void handleConfigBackup() {
-    if (!sharedHostSettingsInitialized) {
-        sendError(503, "SHARED_SETTINGS_UNAVAILABLE", "Host settings have not been synchronized to the ESP32.");
-        return;
-    }
     JsonDocument document;
+    document["format"] = "esp-download-system-backup";
     document["schemaVersion"] = 1;
     document["chipModel"] = ESP.getChipModel();
     document["deviceId"] = WiFi.macAddress();
     document["ddnsEnabled"] = ddnsEnabled;
     document["ddnsDomain"] = ddnsDomain;
     document["ddnsToken"] = ddnsToken;
+
     JsonObject settings = document["settings"].to<JsonObject>();
     settings["wifiSsid"] = preferences.getString("wifiSsid", "");
     settings["wifiPass"] = preferences.getString("wifiPass", "");
@@ -1720,7 +1762,26 @@ void handleConfigBackup() {
         item["pulseMs"] = command.pulseMs;
         item["activeHigh"] = command.activeHigh;
     }
-    document["sharedSettings"].set(sharedHostSettings.as<JsonVariantConst>());
+
+    if (sharedHostSettingsInitialized) {
+        document["sharedSettings"].set(sharedHostSettings.as<JsonVariantConst>());
+        document["hostConfig"].set(sharedHostSettings.as<JsonVariantConst>());
+    } else {
+        document["sharedSettings"].to<JsonObject>();
+        document["hostConfig"].to<JsonObject>();
+    }
+
+    JsonObject devCfg = document["deviceConfig"].to<JsonObject>();
+    devCfg["schemaVersion"] = 1;
+    devCfg["chipModel"] = ESP.getChipModel();
+    devCfg["deviceId"] = WiFi.macAddress();
+    devCfg["settings"] = settings;
+    if (sharedHostSettingsInitialized) {
+        devCfg["sharedSettings"].set(sharedHostSettings.as<JsonVariantConst>());
+    } else {
+        devCfg["sharedSettings"].to<JsonObject>();
+    }
+
     sendJson(200, document);
 }
 
@@ -3802,6 +3863,10 @@ void routeRequest() {
             handleIdentify();
         } else if (server.method() == HTTP_POST && path == "/setup/ddns") {
             handleSaveDdns();
+        } else if (server.method() == HTTP_GET && path == "/setup/backup") {
+            handleConfigBackup();
+        } else if (server.method() == HTTP_POST && path == "/setup/restore") {
+            handleConfigRestore();
         } else {
             sendError(404, "SETUP_ROUTE_NOT_FOUND", "Unknown setup route.");
         }
