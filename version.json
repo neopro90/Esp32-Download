@@ -1,7 +1,7 @@
 {
-  "version": "1.3.1.1",
-  "versionCode": 4,
-  "firmwareVersion": "1.3.1.1",
+  "version": "1.3.1.2",
+  "versionCode": 5,
+  "firmwareVersion": "1.3.1.2",
   "apkUrl": "https://raw.githubusercontent.com/neopro90/Esp32-Download/main/esp-download.apk",
-  "releaseNotes": "1. Thêm Backup & Restore trực tiếp tại giao diện AP 192.168.4.1 (tiện lợi khi đổi board phần cứng mới)\n2. Tự động dọn dẹp file tạm .bin và .apk sau khi flash/cập nhật, chống rác và chống trùng tên\n3. Thêm tính năng kiểm tra cập nhật APK OTA từ GitHub"
+  "releaseNotes": "1. Thêm nút Khôi phục cấu hình (Restored config) trực tiếp trong cửa sổ thiết lập Wi-Fi AP trên Android\n2. Tự động nạp file .espbackup lên ESP32 tại 192.168.4.1\n3. Hỗ trợ tự động dọn dẹp file tạm .bin và .apk"
 }

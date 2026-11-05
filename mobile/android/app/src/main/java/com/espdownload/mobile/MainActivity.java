@@ -128,6 +128,7 @@ public class MainActivity extends Activity {
     private static final int REQUEST_SYSTEM_BACKUP_OPEN = 8438;
     private static final int REQUEST_LEGACY_BACKUP_PERMISSION = 8439;
     private static final int REQUEST_WIFI_SCAN_PERMISSION = 8440;
+    private static final int REQUEST_DIRECT_AP_RESTORE = 8441;
     private ConnectivityManager.NetworkCallback activeNetworkCallback;
     private static int INK = Color.rgb(23, 33, 30);
     private static int MUTED = Color.rgb(112, 126, 116);
@@ -615,6 +616,10 @@ public class MainActivity extends Activity {
             if (resultCode == RESULT_OK && data != null && data.getData() != null) restoreSystemConfiguration(data.getData());
             return;
         }
+        if (requestCode == REQUEST_DIRECT_AP_RESTORE) {
+            if (resultCode == RESULT_OK && data != null && data.getData() != null) restoreDirectApConfiguration(data.getData());
+            return;
+        }
         if (requestCode == REQUEST_FIRMWARE_FILES) {
             if (resultCode == RESULT_OK && data != null) {
                 firmwareImages.clear();
@@ -1086,6 +1091,19 @@ public class MainActivity extends Activity {
         LinearLayout apActionDirect = column(apScanCard);
         apActionDirect.setTag("ap-action-panel");
 
+        LinearLayout backupCard = cardStart(root);
+        label(backupCard, "Khôi phục cấu hình nhanh (Restored config)", 15, INK, true);
+        label(backupCard, "Nếu thay board ESP32 mới, bạn chỉ cần chọn file backup (.espbackup) để nạp lại toàn bộ cấu hình (Wi-Fi, Telegram, Runtime, GPIO) mà không cần cài đặt lại thủ công.", 12, MUTED, false);
+        LinearLayout backupRow = horizontal(backupCard);
+        Button restoreBtn = button("⬆️ Khôi phục cấu hình", true);
+        restoreBtn.setOnClickListener(v -> chooseDirectApBackup());
+        backupRow.addView(restoreBtn, new LinearLayout.LayoutParams(0, dp(42), 1.2f));
+        Button backupBtn = button("⬇️ Sao lưu", false);
+        backupBtn.setOnClickListener(v -> downloadDirectApBackup());
+        backupRow.addView(backupBtn, new LinearLayout.LayoutParams(0, dp(42), 0.8f));
+        TextView directBackupFeedback = label(backupCard, "", 12, MUTED, false);
+        directBackupFeedback.setTag("direct-backup-feedback");
+
         TextView state=label(root,"Đang đọc trạng thái AP…",13,INK,true);state.setTag("direct-ap-status");
         Button scan=button("Quét Wi‑Fi quanh ESP32",false);root.addView(scan,full());scan.setOnClickListener(v->scanWifi());
         LinearLayout networks=column(root);networks.setTag("wifi-networks");
@@ -1093,6 +1111,9 @@ public class MainActivity extends Activity {
         label(root,"Mật khẩu Wi‑Fi",12,MUTED,true);EditText pass=input("wifi-pass","Mật khẩu Wi‑Fi","","Để trống nếu mạng mở",InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD,false);root.addView(pass,full());
         
         Button save = button("Lưu Wi‑Fi vào ESP32", true); root.addView(save, full());
+        Button quickRestoreBtn = button("⬆️ Hoặc Khôi phục từ file backup (.espbackup)", false);
+        root.addView(quickRestoreBtn, full());
+        quickRestoreBtn.setOnClickListener(v -> chooseDirectApBackup());
         TextView wifiSaveFeedback = label(root, "", 12, MUTED, false);
         wifiSaveFeedback.setTag("wifi-save-feedback");
         LinearLayout gatewayResultBox = column(root);
@@ -3765,6 +3786,95 @@ public class MainActivity extends Activity {
                 .setNegativeButton(tr("Hủy"), null)
                 .show();
         }, error -> toast(tr("Không mở được backup: ") + error.getMessage()));
+    }
+
+    private void chooseDirectApBackup() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{SYSTEM_BACKUP_MIME_TYPE, "application/json", "application/octet-stream"});
+        try {
+            startActivityForResult(intent, REQUEST_DIRECT_AP_RESTORE);
+        } catch (Exception error) {
+            toast(tr("Không mở được trình chọn file backup: ") + error.getMessage());
+        }
+    }
+
+    private void restoreDirectApConfiguration(Uri uri) {
+        View fb = (directSetup ? root : body).findViewWithTag("direct-backup-feedback");
+        if (fb instanceof TextView) {
+            ((TextView) fb).setText(tr("Đang đọc file backup…"));
+            ((TextView) fb).setTextColor(INK);
+        }
+        runIo(() -> {
+            byte[] bytes = readSystemBackup(uri);
+            JSONObject backup = parseSystemBackup(bytes);
+            return json("backup", backup.toString());
+        }, result -> {
+            JSONObject backup = new JSONObject(result.getString("backup"));
+            JSONObject devCfg = backup.optJSONObject("deviceConfig");
+            String chip = devCfg != null ? devCfg.optString("chipModel", "ESP32") : "ESP32";
+            new android.app.AlertDialog.Builder(this)
+                .setTitle(tr("Xác nhận khôi phục cấu hình ESP32"))
+                .setMessage(tr("Nạp toàn bộ cấu hình (Wi-Fi, Telegram, Runtime URL, GPIO, DDNS) từ file backup lên ESP32 tại 192.168.4.1?\n\nNguồn backup: ") + chip + "\n\n" + tr("ESP32 sẽ nhận cấu hình và tự khởi động lại để kết nối router."))
+                .setPositiveButton(tr("Khôi phục ngay"), (dialog, which) -> {
+                    if (fb instanceof TextView) {
+                        ((TextView) fb).setText(tr("Đang nạp cấu hình lên ESP32 (192.168.4.1)…"));
+                        ((TextView) fb).setTextColor(INK);
+                    }
+                    runIo(() -> request("http://192.168.4.1", "/setup/restore", "POST", backup, ""),
+                        res -> {
+                            toast(tr("Khôi phục cấu hình thành công! ESP32 đang khởi động lại."));
+                            if (fb instanceof TextView) {
+                                ((TextView) fb).setText(tr("🎉 Khôi phục cấu hình thành công! ESP32 đang khởi động lại và kết nối mạng Wi-Fi…"));
+                                ((TextView) fb).setTextColor(Color.rgb(36, 109, 82));
+                            }
+                        },
+                        err -> {
+                            toast(tr("Khôi phục thất bại: ") + err.getMessage());
+                            if (fb instanceof TextView) {
+                                ((TextView) fb).setText(tr("Khôi phục thất bại: ") + err.getMessage());
+                                ((TextView) fb).setTextColor(Color.rgb(190, 40, 40));
+                            }
+                        }
+                    );
+                })
+                .setNegativeButton(tr("Hủy"), null)
+                .show();
+        }, error -> {
+            toast(tr("Không mở được file backup: ") + error.getMessage());
+            if (fb instanceof TextView) {
+                ((TextView) fb).setText(tr("Lỗi đọc file: ") + error.getMessage());
+                ((TextView) fb).setTextColor(Color.rgb(190, 40, 40));
+            }
+        });
+    }
+
+    private void downloadDirectApBackup() {
+        View fb = (directSetup ? root : body).findViewWithTag("direct-backup-feedback");
+        if (fb instanceof TextView) {
+            ((TextView) fb).setText(tr("Đang tải file sao lưu từ ESP32 (192.168.4.1)…"));
+            ((TextView) fb).setTextColor(INK);
+        }
+        runIo(() -> {
+            JSONObject backup = request("http://192.168.4.1", "/setup/backup", "GET", null, "");
+            String filename = "esp32-backup-" + new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(new java.util.Date()) + ".espbackup";
+            saveSystemBackupToDownloads(filename, backup.toString(2).getBytes(StandardCharsets.UTF_8));
+            return json("filename", filename);
+        }, res -> {
+            String filename = res.optString("filename", "esp32-backup.espbackup");
+            toast(tr("Đã lưu bản sao lưu vào Download/Esp32 System: ") + filename);
+            if (fb instanceof TextView) {
+                ((TextView) fb).setText(tr("✅ Đã lưu file sao lưu vào Download/Esp32 System: ") + filename);
+                ((TextView) fb).setTextColor(Color.rgb(36, 109, 82));
+            }
+        }, err -> {
+            toast(tr("Lỗi tải sao lưu từ ESP32: ") + err.getMessage());
+            if (fb instanceof TextView) {
+                ((TextView) fb).setText(tr("Lỗi sao lưu: ") + err.getMessage());
+                ((TextView) fb).setTextColor(Color.rgb(190, 40, 40));
+            }
+        });
     }
 
     private void loadConfigForPage(String page) {
