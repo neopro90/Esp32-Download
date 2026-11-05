@@ -40,7 +40,7 @@ versa.
 
 ## Build configuration
 
-- `app/build.gradle` defines the `standard` and `freshTest` product flavors with `versionCode 10` and `versionName "1.3.1.7"`.
+- `app/build.gradle` defines the `standard` and `freshTest` product flavors with `versionCode 11` and `versionName "1.3.1.8"`.
 - `standard` installs as `com.espdownload.mobile`.
 - `freshTest` installs side-by-side as `com.espdownload.mobile.fresh`; it starts
   without the normal app's saved host or preferences.

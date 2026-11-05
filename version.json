@@ -1,7 +1,7 @@
 {
-  "version": "1.3.1.7",
-  "versionCode": 10,
-  "firmwareVersion": "1.3.1.7",
+  "version": "1.3.1.8",
+  "versionCode": 11,
+  "firmwareVersion": "1.3.1.8",
   "apkUrl": "https://raw.githubusercontent.com/neopro90/Esp32-Download/main/esp-download.apk",
-  "releaseNotes": "1. Mặc định và làm mờ URL source https://github.com/neopro90/Esp32-Download trên APK\n2. Hiển thị 4 ký tự cuối DuckDNS Token (****...xxxx) và bảo toàn token khi lưu\n3. Tự động nhận diện kết nối di động 4G/LTE và chuyển hướng thông minh giữa IP LAN và tên miền DuckDNS\n4. Ngăn chặn triệt để lỗi timeout 5000ms khi vào trang Log Telegram"
+  "releaseNotes": "1. Chuẩn hóa tiêu đề module pipeline thành DDNS trên cả Web Host runtime và Android APK\n2. Nâng cấp nhận diện trạng thái DDNS: hiển thị xanh khi cập nhật thành công (OK), cảnh báo đỏ/vàng khi lỗi kết nối/tắt DDNS\n3. Tooltip hiển thị đầy đủ tên miền Dynamic DNS\n4. Tối ưu luồng kiểm tra trạng thái toàn diện 7 module"
 }

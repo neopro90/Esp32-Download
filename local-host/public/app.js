@@ -456,12 +456,18 @@ function renderPipeline(status) {
   setPipelineLink("device-api-gateway", deviceApiGatewayUp, "", deviceApiGatewayUp);
   const ddnsDomainRaw = String(device.ddnsDomain || status.host?.ddnsDomain || "").trim();
   const domainConfigured = Boolean(ddnsDomainRaw);
-  const domainUp = domainConfigured && gatewayUp && device.ddnsEnabled !== false;
+  const ddnsLastStatus = String(device.ddnsLastStatus || "");
+  const ddnsFailed = Boolean(ddnsLastStatus && (ddnsLastStatus.includes("KO") || ddnsLastStatus.toLowerCase().includes("lỗi") || ddnsLastStatus.toLowerCase().includes("fail")));
+  const domainUp = domainConfigured && gatewayUp && device.ddnsEnabled !== false && !ddnsFailed;
   const domainTitle = $("#pipeline-domain-title");
-  if (domainTitle) domainTitle.textContent = domainConfigured ? ddnsDomainRaw : "Domain";
+  if (domainTitle) domainTitle.textContent = "DDNS";
+  const domainNode = $("#pipeline-domain");
+  if (domainNode) domainNode.title = domainConfigured ? (ddnsDomainRaw.includes(".") ? ddnsDomainRaw : `${ddnsDomainRaw}.duckdns.org`) : "DDNS chưa cấu hình";
   const domainDetail = !domainConfigured
     ? "Chưa cấu hình"
-    : (domainUp ? (device.ddnsLastStatus || "Đang hoạt động") : (deviceUp ? "Chưa kết nối" : "ESP32 offline"));
+    : (domainUp
+        ? (ddnsLastStatus || (ddnsDomainRaw.includes(".") ? ddnsDomainRaw : `${ddnsDomainRaw}.duckdns.org`) || "Đang hoạt động")
+        : (ddnsFailed ? ddnsLastStatus : (!device.ddnsEnabled ? "DDNS đang tắt" : (deviceUp ? "Chưa kết nối" : "ESP32 offline"))));
   setPipelineLink("domain", domainUp, domainDetail, domainUp);
   setPipelineLink("storage", outputWritable, outputDetail, storageUp);
   const core = $("#pipeline-esp32");

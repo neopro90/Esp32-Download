@@ -2463,7 +2463,7 @@ public class MainActivity extends Activity {
         PipelineFlowView pipeline = new PipelineFlowView(this);
         pipeline.setTag("dashboard-pipeline");
         pipeline.addStage(createPipelineGridStage("pipeline-telegram", "Telegram API"));
-        pipeline.addStage(createPipelineGridStage("pipeline-domain", "Domain"));
+        pipeline.addStage(createPipelineGridStage("pipeline-domain", "DDNS"));
         pipeline.addStage(createPipelineGridStage("pipeline-gateway", "Wi-Fi Gateway", true));
         pipeline.addStage(createPipelineGridStage("pipeline-worker", "Runtime Service"));
         pipeline.addStage(createPipelineGridStage("pipeline-host", "Local host"));
@@ -3000,7 +3000,9 @@ public class MainActivity extends Activity {
             if (ddnsDomain.isEmpty() && config != null) ddnsDomain = config.optString("ddnsDomain", "");
             if (ddnsDomain.isEmpty() && prefs != null) ddnsDomain = prefs.getString("ddns_domain_raw", "");
             boolean ddnsConfigured = !ddnsDomain.trim().isEmpty();
-            boolean ddnsOnline = ddnsConfigured && deviceConnected && d.optBoolean("ddnsEnabled", true);
+            String ddnsLastStatus = d.optString("ddnsLastStatus", "");
+            boolean ddnsFailed = !ddnsLastStatus.isEmpty() && (ddnsLastStatus.contains("KO") || ddnsLastStatus.toLowerCase().contains("lỗi") || ddnsLastStatus.toLowerCase().contains("fail"));
+            boolean ddnsOnline = ddnsConfigured && deviceConnected && d.optBoolean("ddnsEnabled", true) && !ddnsFailed;
 
             pipeline.setNodeOnline("pipeline-telegram", tgOnline);
             pipeline.setNodeOnline("pipeline-gateway", gwOnline);
@@ -3012,7 +3014,7 @@ public class MainActivity extends Activity {
 
             View domainNode = pipeline.findViewWithTag("pipeline-domain");
             if (domainNode instanceof ViewGroup && ((ViewGroup) domainNode).getChildAt(0) instanceof TextView) {
-                ((TextView) ((ViewGroup) domainNode).getChildAt(0)).setText(ddnsConfigured ? ddnsDomain : "Domain");
+                ((TextView) ((ViewGroup) domainNode).getChildAt(0)).setText("DDNS");
             }
             View storageNode = pipeline.findViewWithTag("pipeline-storage");
             if (storageNode instanceof ViewGroup && ((ViewGroup) storageNode).getChildAt(0) instanceof TextView) {
