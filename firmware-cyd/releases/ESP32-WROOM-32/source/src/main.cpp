@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <DNSServer.h>
 #include <ESPmDNS.h>
 #include <LittleFS.h>
 #include <Preferences.h>
@@ -574,6 +575,7 @@ struct GpioCommand {
 
 Preferences preferences;
 WebServer server(80);
+DNSServer dnsServer;
 std::vector<Job> jobs;
 std::vector<TelegramLogEntry> telegramLog;
 std::vector<String> processedTelegramUpdates;
@@ -721,6 +723,15 @@ void registerWifiEvents() {
             wifiLastGotIpAtMs.store(millis(), std::memory_order_relaxed);
             const uint32_t count = wifiGotIpCount.fetch_add(1, std::memory_order_relaxed) + 1;
             Serial.printf("Wi-Fi event: station got IP, count=%lu\n", static_cast<unsigned long>(count));
+        } else if (event == ARDUINO_EVENT_WIFI_AP_STACONNECTED) {
+            Serial.printf("[AP EVENT] Phone/Client CONNECTED! MAC: %02x:%02x:%02x:%02x:%02x:%02x\n",
+                          info.wifi_ap_staconnected.mac[0], info.wifi_ap_staconnected.mac[1],
+                          info.wifi_ap_staconnected.mac[2], info.wifi_ap_staconnected.mac[3],
+                          info.wifi_ap_staconnected.mac[4], info.wifi_ap_staconnected.mac[5]);
+        } else if (event == ARDUINO_EVENT_WIFI_AP_STAIPASSIGNED) {
+            Serial.printf("[AP EVENT] Client DHCP assigned IP: %s\n", IPAddress(info.wifi_ap_staipassigned.ip.addr).toString().c_str());
+        } else if (event == ARDUINO_EVENT_WIFI_AP_STADISCONNECTED) {
+            Serial.println("[AP EVENT] Phone/Client DISCONNECTED from AP.");
         }
     });
 }
@@ -1304,6 +1315,7 @@ bool isSetupApActive() {
 void startSetupAccessPoint() {
     if (!apEnabled && !apRecoveryMode) {
         setupApStarted = false;
+        dnsServer.stop();
         return;
     }
     setupSsid = kSetupSsid;
@@ -1327,9 +1339,11 @@ void startSetupAccessPoint() {
     }
     setupApStarted = apStarted;
     if (apStarted) {
+        dnsServer.setErrorReplyCode(DNSReplyCode::NoError);
+        dnsServer.start(53, "*", WiFi.softAPIP());
         Serial.printf("[AP SUCCESS] Provisioning AP active: SSID '%s' (IP: %s)\n", setupSsid.c_str(), WiFi.softAPIP().toString().c_str());
         Serial.printf("[AP SUCCESS] Provisioning AP password: '%s'\n", setupPassword.c_str());
-        Serial.println("[AP SUCCESS] Connect phone or PC to this AP, then open http://192.168.4.1/");
+        Serial.println("[AP SUCCESS] Captive Portal DNS running. Connect phone/PC, then open http://192.168.4.1/");
     } else {
         Serial.println("[AP ERROR] Could not start setup AP!");
     }
@@ -3547,6 +3561,18 @@ void handleDockerComposeFile() {
 }
 
 void routeRequest() {
+    Serial.printf("[HTTP] %s %s (Host: %s)\n", server.method() == HTTP_GET ? "GET" : server.method() == HTTP_POST ? "POST" : "OTHER", server.uri().c_str(), server.hostHeader().c_str());
+
+    if (setupApStarted) {
+        const String rawPath = server.uri();
+        if (rawPath == "/generate_204" || rawPath == "/gen_204" || rawPath == "/hotspot-detect.html" ||
+            rawPath == "/canonical.html" || rawPath == "/connecttest.txt" || rawPath == "/ncsi.txt") {
+            server.sendHeader("Location", "http://192.168.4.1/");
+            server.send(302, "text/plain", "");
+            return;
+        }
+    }
+
     if (server.method() == HTTP_OPTIONS) {
         server.sendHeader("Access-Control-Allow-Origin", "*");
         server.sendHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS");
@@ -3853,6 +3879,9 @@ void setup() {
 }
 
 void loop() {
+    if (setupApStarted) {
+        dnsServer.processNextRequest();
+    }
     server.handleClient();
     ensureMdns();
     apToggleTick();
