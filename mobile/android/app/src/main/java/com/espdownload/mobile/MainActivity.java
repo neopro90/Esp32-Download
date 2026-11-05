@@ -26,7 +26,15 @@ import android.graphics.PathMeasure;
 import android.graphics.PathEffect;
 import android.graphics.DashPathEffect;
 import android.graphics.RectF;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkRequest;
+import android.net.NetworkCapabilities;
+import android.net.wifi.WifiNetworkSpecifier;
+import android.net.wifi.ScanResult;
+import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiManager;
+import android.provider.Settings;
 import android.net.Uri;
 import android.content.ContentValues;
 import android.os.Bundle;
@@ -118,6 +126,8 @@ public class MainActivity extends Activity {
     private static final int REQUEST_FIRMWARE_FILES = 8436;
     private static final int REQUEST_SYSTEM_BACKUP_OPEN = 8438;
     private static final int REQUEST_LEGACY_BACKUP_PERMISSION = 8439;
+    private static final int REQUEST_WIFI_SCAN_PERMISSION = 8440;
+    private ConnectivityManager.NetworkCallback activeNetworkCallback;
     private static int INK = Color.rgb(23, 33, 30);
     private static int MUTED = Color.rgb(112, 126, 116);
     private static int GREEN = Color.rgb(36, 109, 82);
@@ -555,6 +565,12 @@ public class MainActivity extends Activity {
                 pendingSystemBackupName = null;
                 toast(tr("Cần cấp quyền ghi bộ nhớ để lưu backup trong Download/Esp32 System."));
             }
+        } else if (requestCode == REQUEST_WIFI_SCAN_PERMISSION) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                scanNearbyEspAccessPoints();
+            } else {
+                toast(tr("Cần cấp quyền vị trí hoặc thiết bị gần đây để quét AP ESP32."));
+            }
         }
     }
 
@@ -802,15 +818,283 @@ public class MainActivity extends Activity {
         return normalized;
     }
 
+    private void scanNearbyEspAccessPoints() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[]{Manifest.permission.NEARBY_WIFI_DEVICES, Manifest.permission.ACCESS_FINE_LOCATION}, REQUEST_WIFI_SCAN_PERMISSION);
+                return;
+            }
+        } else if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, REQUEST_WIFI_SCAN_PERMISSION);
+            return;
+        }
+
+        View containerView = (directSetup ? root : body).findViewWithTag("esp-ap-results");
+        if (containerView instanceof LinearLayout) {
+            LinearLayout results = (LinearLayout) containerView;
+            results.removeAllViews();
+            label(results, "Đang quét sóng AP từ các thiết bị ESP32 gần bạn…", 13, MUTED, false);
+        }
+
+        WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+        if (wm == null) {
+            toast("Không tìm thấy dịch vụ Wi-Fi trên thiết bị.");
+            return;
+        }
+
+        try {
+            BroadcastReceiver scanReceiver = new BroadcastReceiver() {
+                @Override
+                public void onReceive(Context c, Intent intent) {
+                    try { unregisterReceiver(this); } catch (Exception ignored) {}
+                    try {
+                        List<ScanResult> scanList = wm.getScanResults();
+                        renderDiscoveredEspAccessPoints(scanList);
+                    } catch (SecurityException se) {
+                        toast("Chưa được cấp quyền quét Wi-Fi.");
+                    }
+                }
+            };
+            registerReceiver(scanReceiver, new IntentFilter(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION));
+            boolean started = wm.startScan();
+            if (!started) {
+                List<ScanResult> cached = wm.getScanResults();
+                renderDiscoveredEspAccessPoints(cached);
+            }
+        } catch (Exception e) {
+            try {
+                renderDiscoveredEspAccessPoints(wm.getScanResults());
+            } catch (Exception ignored) {}
+        }
+    }
+
+    private void renderDiscoveredEspAccessPoints(List<ScanResult> scanResults) {
+        View containerView = (directSetup ? root : body).findViewWithTag("esp-ap-results");
+        if (!(containerView instanceof LinearLayout)) return;
+        LinearLayout container = (LinearLayout) containerView;
+        container.removeAllViews();
+
+        List<ScanResult> espAps = new ArrayList<>();
+        if (scanResults != null) {
+            for (ScanResult r : scanResults) {
+                if (r.SSID != null && (r.SSID.equalsIgnoreCase("espsystem") || r.SSID.toLowerCase(Locale.ROOT).startsWith("espsystem") || r.SSID.toLowerCase(Locale.ROOT).startsWith("espdownload"))) {
+                    boolean exists = false;
+                    for (ScanResult existing : espAps) {
+                        if (existing.SSID.equalsIgnoreCase(r.SSID)) { exists = true; break; }
+                    }
+                    if (!exists) espAps.add(r);
+                }
+            }
+        }
+
+        if (espAps.isEmpty()) {
+            LinearLayout emptyCard = cardStart(container);
+            label(emptyCard, "Chưa thấy phát sóng 'espsystem' trong tầm quét", 13, INK, true);
+            label(emptyCard, "Nếu board vừa cắm điện, vui lòng đợi 5-10s hoặc thử kết nối trực tiếp đến AP mặc định bên dưới:", 12, MUTED, false);
+            Button connectDefault = button("⚡ Kết nối AP mặc định (espsystem)", true);
+            emptyCard.addView(connectDefault, full());
+            connectDefault.setOnClickListener(v -> connectToEspAccessPoint("espsystem", "espsystem"));
+            Button manualWifi = button("Mở cài đặt Wi‑Fi trên điện thoại", false);
+            emptyCard.addView(manualWifi, full());
+            manualWifi.setOnClickListener(v -> openSystemWifiSettings());
+            return;
+        }
+
+        label(container, "Tìm thấy " + espAps.size() + " trạm AP của ESP32:", 13, INK, true);
+        for (ScanResult ap : espAps) {
+            LinearLayout item = cardStart(container);
+            LinearLayout titleRow = horizontal(item);
+            label(titleRow, "📡 " + ap.SSID, 14, GREEN, true);
+            titleRow.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1));
+            label(titleRow, ap.level + " dBm", 12, MUTED, true);
+            label(item, "Tần số: " + ap.frequency + " MHz · BSSID: " + ap.BSSID, 11, MUTED, false);
+            Button connectBtn = button("Xác thực & Kết nối AP này", true);
+            item.addView(connectBtn, full());
+            final String targetSsid = ap.SSID;
+            connectBtn.setOnClickListener(v -> connectToEspAccessPoint(targetSsid, "espsystem"));
+        }
+    }
+
+    private void connectToEspAccessPoint(String ssid, String password) {
+        toast("Đang yêu cầu kết nối tới AP " + ssid + "…");
+        View statusView = (directSetup ? root : body).findViewWithTag("ap-connect-feedback");
+        if (statusView instanceof TextView) {
+            ((TextView) statusView).setText(tr("Đang xác thực kết nối với AP " + ssid + " (192.168.4.1)…"));
+            ((TextView) statusView).setTextColor(INK);
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            WifiNetworkSpecifier.Builder builder = new WifiNetworkSpecifier.Builder().setSsid(ssid);
+            if (password != null && password.length() >= 8) {
+                builder.setWpa2Passphrase(password);
+            }
+            NetworkRequest request = new NetworkRequest.Builder()
+                .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                .removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .setNetworkSpecifier(builder.build())
+                .build();
+            ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm != null) {
+                if (activeNetworkCallback != null) {
+                    try { cm.unregisterNetworkCallback(activeNetworkCallback); } catch (Exception ignored) {}
+                }
+                activeNetworkCallback = new ConnectivityManager.NetworkCallback() {
+                    @Override
+                    public void onAvailable(Network network) {
+                        try { cm.bindProcessToNetwork(network); } catch (Exception ignored) {}
+                        main.post(() -> verifyAndShowSetupSuccess(ssid));
+                    }
+                    @Override
+                    public void onUnavailable() {
+                        main.post(() -> onApConnectFailure("Không thể kết nối vào AP " + ssid + ". Bạn có thể thử kết nối thủ công trong cài đặt Wi-Fi."));
+                    }
+                };
+                try {
+                    cm.requestNetwork(request, activeNetworkCallback);
+                    return;
+                } catch (Exception e) {
+                    // Fallback to manual/legacy
+                }
+            }
+        }
+
+        try {
+            WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            if (wm != null) {
+                WifiConfiguration conf = new WifiConfiguration();
+                conf.SSID = "\"" + ssid + "\"";
+                conf.preSharedKey = "\"" + password + "\"";
+                int netId = wm.addNetwork(conf);
+                wm.disconnect();
+                wm.enableNetwork(netId, true);
+                wm.reconnect();
+                main.postDelayed(() -> verifyAndShowSetupSuccess(ssid), 3500);
+            } else {
+                openSystemWifiSettings();
+            }
+        } catch (Exception e) {
+            openSystemWifiSettings();
+        }
+    }
+
+    private void verifyAndShowSetupSuccess(String ssid) {
+        runIo(() -> {
+            try {
+                return request("http://192.168.4.1", "/setup/status", "GET", null, "");
+            } catch (Exception e) {
+                throw new RuntimeException("Chưa nhận được phản hồi HTTP từ 192.168.4.1: " + e.getMessage());
+            }
+        }, result -> {
+            toast("Đã xác thực và kết nối thành công với ESP32!");
+            showApSetupActionControls(ssid, result);
+        }, error -> {
+            main.postDelayed(() -> {
+                runIo(() -> request("http://192.168.4.1", "/setup/status", "GET", null, ""), result -> {
+                    toast("Đã xác thực và kết nối thành công với ESP32!");
+                    showApSetupActionControls(ssid, result);
+                }, err2 -> {
+                    onApConnectFailure("Đã kết nối Wi-Fi nhưng chưa nhận phản hồi từ 192.168.4.1. Hãy kiểm tra điện thoại đã giữ kết nối AP.");
+                });
+            }, 2000);
+        });
+    }
+
+    private void showApSetupActionControls(String ssid, JSONObject status) {
+        View feedbackView = (directSetup ? root : body).findViewWithTag("ap-connect-feedback");
+        if (feedbackView instanceof TextView) {
+            ((TextView) feedbackView).setText(tr("✅ Đã kết nối và xác thực với ESP32 qua AP!"));
+            ((TextView) feedbackView).setTextColor(GREEN);
+        }
+        View panelView = (directSetup ? root : body).findViewWithTag("ap-action-panel");
+        if (!(panelView instanceof LinearLayout)) return;
+        LinearLayout panel = (LinearLayout) panelView;
+        panel.removeAllViews();
+
+        LinearLayout card = cardStart(panel);
+        label(card, "✅ Đã xác thực kết nối AP thành công!", 15, GREEN, true);
+        label(card, "ESP32 AP: " + ssid + " · IP: 192.168.4.1\n" + tr("Trạng thái: Sẵn sàng cấu hình"), 12, INK, false);
+
+        Button openSettingBtn = button("⚙️ Mở giao diện cài đặt (192.168.4.1)", true);
+        openSettingBtn.setTextSize(14);
+        openSettingBtn.setPadding(0, dp(12), 0, dp(12));
+        card.addView(openSettingBtn, full());
+        openSettingBtn.setOnClickListener(v -> {
+            if (!directSetup) {
+                showDirectSetup();
+            } else {
+                refreshDirectSetup();
+            }
+        });
+
+        Button openBrowserBtn = button("🌐 Mở trên trình duyệt web (192.168.4.1)", false);
+        card.addView(openBrowserBtn, full());
+        openBrowserBtn.setOnClickListener(v -> {
+            try {
+                Intent browserIntent = new Intent(Intent.ACTION_VIEW, Uri.parse("http://192.168.4.1/"));
+                startActivity(browserIntent);
+            } catch (Exception ex) {
+                toast("Không thể mở trình duyệt: " + ex.getMessage());
+            }
+        });
+    }
+
+    private void onApConnectFailure(String message) {
+        View feedbackView = (directSetup ? root : body).findViewWithTag("ap-connect-feedback");
+        if (feedbackView instanceof TextView) {
+            ((TextView) feedbackView).setText(tr(message));
+            ((TextView) feedbackView).setTextColor(Color.rgb(190, 40, 40));
+        }
+        View panelView = (directSetup ? root : body).findViewWithTag("ap-action-panel");
+        if (panelView instanceof LinearLayout) {
+            LinearLayout panel = (LinearLayout) panelView;
+            panel.removeAllViews();
+            Button manualBtn = button("Mở cài đặt Wi‑Fi trên điện thoại", false);
+            panel.addView(manualBtn, full());
+            manualBtn.setOnClickListener(v -> openSystemWifiSettings());
+        }
+        toast(message);
+    }
+
+    private void openSystemWifiSettings() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startActivity(new Intent(Settings.Panel.ACTION_WIFI));
+            } else {
+                startActivity(new Intent(Settings.ACTION_WIFI_SETTINGS));
+            }
+        } catch (Exception e) {
+            try {
+                startActivity(new Intent(Settings.ACTION_WIFI_SETTINGS));
+            } catch (Exception ignored) {}
+        }
+    }
+
     private void showDirectSetup() {
         directSetup = true;
-        root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setBackgroundColor(PAGE); root.setPadding(dp(18),dp(22),dp(18),dp(18)); setContentView(root);
+        ScrollView scroll = new ScrollView(this);
+        root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setBackgroundColor(PAGE); root.setPadding(dp(18),dp(22),dp(18),dp(18));
+        scroll.addView(root);
+        setContentView(scroll);
         LinearLayout appearance = horizontal(root);
         appearance.addView(themeButton(), new LinearLayout.LayoutParams(0, dp(42), 1));
         appearance.addView(languageButton(), new LinearLayout.LayoutParams(0, dp(42), 1));
         Button back=button("← Quay lại đăng nhập",false); root.addView(back,full()); back.setOnClickListener(v->showLogin());
         label(root,"Thiết lập Wi‑Fi ESP32",24,INK,true);
         label(root,"Kết nối điện thoại vào AP espsystem (mật khẩu espsystem). Trang này giao tiếp trực tiếp với 192.168.4.1, không cần Windows host.",13,MUTED,false);
+
+        LinearLayout apScanCard = cardStart(root);
+        label(apScanCard, "Tìm & Kết nối AP ESP32", 15, INK, true);
+        label(apScanCard, "Quét tìm AP phát từ ESP32 (mặc định 'espsystem'), xác thực kết nối và mở giao diện cài đặt qua 192.168.4.1.", 12, MUTED, false);
+        Button scanApDirect = button("🔍 Quét tìm AP ESP32", false);
+        apScanCard.addView(scanApDirect, full());
+        scanApDirect.setOnClickListener(v -> scanNearbyEspAccessPoints());
+        LinearLayout apResultsDirect = column(apScanCard);
+        apResultsDirect.setTag("esp-ap-results");
+        TextView apFeedbackDirect = label(apScanCard, "", 12, MUTED, false);
+        apFeedbackDirect.setTag("ap-connect-feedback");
+        LinearLayout apActionDirect = column(apScanCard);
+        apActionDirect.setTag("ap-action-panel");
+
         TextView state=label(root,"Đang đọc trạng thái AP…",13,INK,true);state.setTag("direct-ap-status");
         Button scan=button("Quét Wi‑Fi quanh ESP32",false);root.addView(scan,full());scan.setOnClickListener(v->scanWifi());
         LinearLayout networks=column(root);networks.setTag("wifi-networks");
@@ -2448,6 +2732,20 @@ public class MainActivity extends Activity {
 
     private void renderWifi() {
         heading("Kết nối Wi‑Fi", "Quét Wi‑Fi từ ESP32, chọn SSID, nhập mật khẩu và lưu trực tiếp vào thiết bị.");
+
+        LinearLayout apScanSection = cardStart(body);
+        label(apScanSection, "Tìm & Kết nối AP ESP32", 15, INK, true);
+        label(apScanSection, "Quét tìm AP phát từ ESP32 (mặc định 'espsystem'), xác thực kết nối và mở giao diện cài đặt qua 192.168.4.1.", 12, MUTED, false);
+        Button scanApBtn = button("🔍 Quét tìm AP ESP32", false);
+        apScanSection.addView(scanApBtn, full());
+        scanApBtn.setOnClickListener(v -> scanNearbyEspAccessPoints());
+        LinearLayout apResults = column(apScanSection);
+        apResults.setTag("esp-ap-results");
+        TextView apConnectFeedback = label(apScanSection, "", 12, MUTED, false);
+        apConnectFeedback.setTag("ap-connect-feedback");
+        LinearLayout apActionPanel = column(apScanSection);
+        apActionPanel.setTag("ap-action-panel");
+
         LinearLayout ap = cardStart(body); TextView apState = label(ap, "Đang đọc trạng thái AP…", 14, INK, true); apState.setTag("ap-state");
         TextView wifiState = label(body, "Wi‑Fi: đang đọc trạng thái…", 13, INK, true); wifiState.setTag("wifi-state");
         Switch apToggle = new Switch(this); apToggle.setText(tr("Bật AP thiết lập")); apToggle.setTextColor(INK); apToggle.setTag("ap-toggle"); ap.addView(apToggle, full());
@@ -4114,7 +4412,23 @@ public class MainActivity extends Activity {
             {"URL", "URL", "URL"}, {"Wi‑Fi", "Wi-Fi", "Wi-Fi"},
             {"Không truy cập được 192.168.4.1. Hãy kiểm tra điện thoại đã nối AP espsystem chưa.", "Cannot reach 192.168.4.1. Check that the phone is connected to the espsystem AP.", "无法访问 192.168.4.1。请确认手机已连接到 espsystem AP。"},
             {"Đã lưu Wi‑Fi; ESP32 đang kết nối.", "Wi-Fi saved; ESP32 is connecting.", "Wi-Fi 已保存；ESP32 正在连接。"},
-            {"Change interface language", "Change interface language", "更改界面语言"}
+            {"Change interface language", "Change interface language", "更改界面语言"},
+            {"Tìm & Kết nối AP ESP32", "Find & Connect ESP32 AP", "查找并连接 ESP32 AP"},
+            {"Quét tìm AP phát từ ESP32 (mặc định 'espsystem'), xác thực kết nối và mở giao diện cài đặt qua 192.168.4.1.", "Scan for AP broadcast from ESP32 (default 'espsystem'), authenticate connection and open setup UI via 192.168.4.1.", "扫描 ESP32 发出的 AP（默认 'espsystem'），验证连接并通过 192.168.4.1 打开设置界面。"},
+            {"🔍 Quét tìm AP ESP32", "🔍 Scan for ESP32 AP", "🔍 扫描 ESP32 AP"},
+            {"Đang quét sóng AP từ các thiết bị ESP32 gần bạn…", "Scanning for nearby ESP32 APs…", "正在扫描附近的 ESP32 AP…"},
+            {"Chưa thấy phát sóng 'espsystem' trong tầm quét", "No 'espsystem' broadcast found in range", "扫描范围内未发现 'espsystem' 广播"},
+            {"Nếu board vừa cắm điện, vui lòng đợi 5-10s hoặc thử kết nối trực tiếp đến AP mặc định bên dưới:", "If the board was just plugged in, please wait 5-10s or try connecting directly to the default AP below:", "如果开发板刚上电，请等待 5-10 秒或尝试直接连接下方默认 AP："},
+            {"⚡ Kết nối AP mặc định (espsystem)", "⚡ Connect to default AP (espsystem)", "⚡ 连接默认 AP (espsystem)"},
+            {"Mở cài đặt Wi‑Fi trên điện thoại", "Open Wi-Fi settings on phone", "打开手机 Wi-Fi 设置"},
+            {"Xác thực & Kết nối AP này", "Authenticate & Connect to this AP", "验证并连接此 AP"},
+            {"✅ Đã xác thực kết nối AP thành công!", "✅ Authenticated and connected to AP successfully!", "✅ AP 验证并连接成功！"},
+            {"Trạng thái: Sẵn sàng cấu hình", "Status: Ready for setup", "状态：准备好进行配置"},
+            {"⚙️ Mở giao diện cài đặt (192.168.4.1)", "⚙️ Open setup interface (192.168.4.1)", "⚙️ 打开设置界面 (192.168.4.1)"},
+            {"🌐 Mở trên trình duyệt web (192.168.4.1)", "🌐 Open in web browser (192.168.4.1)", "🌐 在网页浏览器中打开 (192.168.4.1)"},
+            {"✅ Đã kết nối và xác thực với ESP32 qua AP!", "✅ Connected and authenticated with ESP32 via AP!", "✅ 已通过 AP 成功连接并验证 ESP32！"},
+            {"Đang yêu cầu kết nối tới AP ", "Requesting connection to AP ", "正在请求连接到 AP "},
+            {"Đang xác thực kết nối với AP ", "Authenticating connection to AP ", "正在验证连接到 AP "}
         };
         int languageIndex = uiLanguage.equals("zh") ? 2 : 1;
         for (String[] entry : entries) if (entry[0].equals(text)) {

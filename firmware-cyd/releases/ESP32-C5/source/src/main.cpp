@@ -702,7 +702,12 @@ void registerWifiEvents() {
         if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
             wifiLastDisconnectReason.store(info.wifi_sta_disconnected.reason, std::memory_order_relaxed);
             wifiLastDisconnectAtMs.store(millis(), std::memory_order_relaxed);
-            wifiNextReconnectAtMs = millis() + 4000UL;
+            const String savedSsid = preferences.getString("wifiSsid", "");
+            if (!savedSsid.isEmpty()) {
+                wifiNextReconnectAtMs = millis() + 4000UL;
+            } else {
+                wifiNextReconnectAtMs = 0;
+            }
             const uint32_t count = wifiDisconnectCount.fetch_add(1, std::memory_order_relaxed) + 1;
             Serial.printf("Wi-Fi event: station disconnected, reason=%u, count=%lu\n",
                           static_cast<unsigned>(wifiLastDisconnectReason.load(std::memory_order_relaxed)), static_cast<unsigned long>(count));
@@ -1293,8 +1298,7 @@ bool isSetupApActive() {
     const wifi_mode_t mode = WiFi.getMode();
     if (mode != WIFI_AP && mode != WIFI_AP_STA) return false;
     const IPAddress address = WiFi.softAPIP();
-    return WiFi.softAPSSID() == kSetupSsid
-        && address[0] == 192 && address[1] == 168 && address[2] == 4 && address[3] == 1;
+    return address[0] == 192 && address[1] == 168 && address[2] == 4 && address[3] == 1;
 }
 
 void startSetupAccessPoint() {
@@ -1302,18 +1306,23 @@ void startSetupAccessPoint() {
     setupSsid = kSetupSsid;
     setupPassword = kSetupPassword;
 
-    WiFi.mode(WIFI_AP_STA);
+    const String savedSsid = preferences.getString("wifiSsid", "");
+    if (savedSsid.isEmpty()) {
+        WiFi.mode(WIFI_AP);
+    } else {
+        WiFi.mode(WIFI_AP_STA);
+    }
     WiFi.setSleep(false);
     if (isSetupApActive()) {
-        Serial.println("Provisioning AP: already active; keeping current AP and station association.");
+        Serial.println("Provisioning AP: already active; keeping current AP.");
         return;
     }
     const bool ipConfigured = WiFi.softAPConfig(IPAddress(192, 168, 4, 1), IPAddress(192, 168, 4, 1), IPAddress(255, 255, 255, 0));
-    const uint8_t channel = WiFi.status() == WL_CONNECTED ? static_cast<uint8_t>(WiFi.channel()) : 1;
+    const uint8_t channel = (WiFi.status() == WL_CONNECTED && !savedSsid.isEmpty()) ? static_cast<uint8_t>(WiFi.channel()) : 1;
     bool apStarted = WiFi.softAP(setupSsid.c_str(), setupPassword.c_str(), channel, false, 4);
     if (!apStarted) {
         delay(250);
-        const uint8_t retryChannel = WiFi.status() == WL_CONNECTED ? static_cast<uint8_t>(WiFi.channel()) : 1;
+        const uint8_t retryChannel = (WiFi.status() == WL_CONNECTED && !savedSsid.isEmpty()) ? static_cast<uint8_t>(WiFi.channel()) : 1;
         apStarted = WiFi.softAP(setupSsid.c_str(), setupPassword.c_str(), retryChannel, false, 4);
     }
     if (apStarted) {
@@ -1362,6 +1371,29 @@ void beginWifi() {
     setupPassword = kSetupPassword;
     WiFi.setSleep(false);
     WiFi.setTxPower(WIFI_POWER_19_5dBm);
+
+    String ssid = preferences.isKey("wifiSsid") ? preferences.getString("wifiSsid") : "";
+    String password = preferences.isKey("wifiPass") ? preferences.getString("wifiPass") : "";
+    if (ssid.isEmpty() && strlen(kDefaultWifiSsid) > 0) {
+        ssid = kDefaultWifiSsid;
+        password = kDefaultWifiPassword;
+    }
+
+    if (ssid.isEmpty()) {
+        // First boot or no Wi-Fi credentials: start SoftAP cleanly in WIFI_AP mode
+        apEnabled = true;
+        wifiNextReconnectAtMs = 0;
+        WiFi.setAutoReconnect(false);
+        WiFi.disconnect(true, true);
+        startSetupAccessPoint();
+        Serial.println("=================================================");
+        Serial.println("[AP] NO WI-FI CONFIG SAVED - FIRST BOOT PROVISIONING");
+        Serial.printf("[AP] SoftAP Started: '%s' | Password: '%s'\n", setupSsid.c_str(), setupPassword.c_str());
+        Serial.printf("[AP] Web Interface: http://%s/\n", WiFi.softAPIP().toString().c_str());
+        Serial.println("=================================================");
+        return;
+    }
+
     WiFi.setAutoReconnect(true);
     if (apEnabled) {
         startSetupAccessPoint();
@@ -1369,14 +1401,6 @@ void beginWifi() {
         WiFi.mode(WIFI_STA);
     }
     Serial.printf("Setup AP %s (configuration revision %u).\n", apEnabled ? "enabled" : "disabled", kFirmwareConfigRevision);
-    String ssid = preferences.isKey("wifiSsid") ? preferences.getString("wifiSsid") : "";
-    String password = preferences.isKey("wifiPass") ? preferences.getString("wifiPass") : "";
-    if (ssid.isEmpty()) {
-        ssid = kDefaultWifiSsid;
-        password = kDefaultWifiPassword;
-        Serial.printf("No station Wi-Fi saved; trying default Wi-Fi SSID '%s'. Setup AP remains active.\n", ssid.c_str());
-    }
-
     WiFi.setHostname(kHostname);
     WiFi.begin(ssid.c_str(), password.c_str());
     Serial.printf("Connecting to configured Wi-Fi SSID '%s'; setup AP remains available.\n", ssid.c_str());
@@ -2137,9 +2161,15 @@ void handleSaveNetwork() {
 void handleClearNetwork() {
     preferences.remove("wifiSsid");
     preferences.remove("wifiPass");
+    apEnabled = true;
+    preferences.putBool("apEnabled", true);
+    WiFi.setAutoReconnect(false);
+    wifiNextReconnectAtMs = 0;
+    WiFi.disconnect(true, true);
+    startSetupAccessPoint();
     JsonDocument response;
     response["saved"] = true;
-    response["message"] = "Stored Wi-Fi credentials removed; restart the device to enter provisioning mode.";
+    response["message"] = "Stored Wi-Fi credentials removed; setup AP is active.";
     sendJson(200, response);
 }
 
@@ -3829,9 +3859,14 @@ void loop() {
     telegramProcessPendingTick();
     apRecoveryTick();
     if (WiFi.status() != WL_CONNECTED && wifiNextReconnectAtMs != 0 && millis() >= wifiNextReconnectAtMs) {
-        if (WiFi.scanComplete() != WIFI_SCAN_RUNNING) {
-            wifiNextReconnectAtMs = millis() + 8000UL;
-            WiFi.reconnect();
+        const String savedSsid = preferences.getString("wifiSsid", "");
+        if (!savedSsid.isEmpty()) {
+            if (WiFi.scanComplete() != WIFI_SCAN_RUNNING) {
+                wifiNextReconnectAtMs = millis() + 8000UL;
+                WiFi.reconnect();
+            }
+        } else {
+            wifiNextReconnectAtMs = 0;
         }
     }
     if (millis() - lastRuntimeHeartbeatMs >= 60000UL || lastRuntimeHeartbeatMs == 0) runtimeHeartbeatTick();
